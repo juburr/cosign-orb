@@ -1,0 +1,15 @@
+description: Verifies a container image signature using Cosign.
+parameters:
+  image:
+    type: string
+    description: Container image to be signed. Include the full path with the tag at the end.
+  public_key:
+    type: string
+    description: Base-64 encoded public key.
+steps:
+  - run:
+      name: Verify signature for << parameters.image >>
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_PUBLIC_KEY: << parameters.public_key >>
+      command: << include(scripts/verify_image.sh) >>

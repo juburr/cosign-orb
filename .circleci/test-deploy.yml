@@ -28,7 +28,10 @@ jobs:
     steps:
       - checkout
       # Run your orb's commands to validate them.
-      - cosign-orb/greet
+      - cosign-orb/install
+      - run:
+          name: Verify Install
+          command: command -v cosign
 workflows:
   test-deploy:
     jobs:

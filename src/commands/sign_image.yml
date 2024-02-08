@@ -1,0 +1,15 @@
+description: Signs a container image using Cosign.
+parameters:
+  image:
+    type: string
+    description: Container image to be signed. Include the full path with the tag at the end.
+  private_key:
+    type: string
+    description: Base-64 encoded private key.
+steps:
+  - run:
+      name: Sign image << parameters.image >>
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_PRIVATE_KEY: << parameters.private_key >>
+      command: << include(scripts/sign_image.sh) >>
