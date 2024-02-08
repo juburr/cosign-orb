@@ -1,13 +1,17 @@
 description: >
-  Sample example description.
-# Provide a use-case based example for using this orb.
-# Everything in the `usage` section will be displayed in the orb registry.
-# Comments are not retained.
+  The `install` command is used to simplify installation of Cosign.
+
 usage:
   version: 2.1
   orbs:
-    <orb-name>: <namespace>/<orb-name>@1.2.3
+    cosign: juburr/cosign-orb@1.0.0
+  jobs:
+    sign-images:
+      docker:
+        - image: cimg/base:stable
+      steps:
+        - cosign/install
   workflows:
     use-my-orb:
       jobs:
-        - <orb-name>/<job-name>
+        - sign-images

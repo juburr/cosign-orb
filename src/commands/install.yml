@@ -1,0 +1,30 @@
+description: Installs the cosign binary. This command should be invoked prior to calling any other commands.
+parameters:
+  caching:
+    type: boolean
+    default: true
+  version:
+    type: string
+    default: "1.13.1"
+    description: Specify the semver of the Cosign version to install.
+steps:
+  - when:
+      condition: << parameters.caching >>
+      steps:
+        - restore_cache:
+            key: cosign-cache-<< parameters.version >>
+  - run:
+      name: Install Cosign << parameters.version >>
+      environment:
+        PARAM_VERSION: << parameters.version >>
+      command: << include(scripts/install.sh) >>
+  - when:
+      condition: << parameters.caching >>
+      steps:
+        - save_cache:
+            key: cosign-cache-<< parameters.version >>
+            paths:
+              - cosign.tar.gz
+  - run:
+      name: Cleanup Cosign Install
+      command: rm cosign.tar.gz
