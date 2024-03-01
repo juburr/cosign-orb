@@ -8,7 +8,7 @@ parameters:
     description: Base-64 encoded private key.
 steps:
   - run:
-      name: Sign image << parameters.image >>
+      name: Sign image
       environment:
         PARAM_IMAGE: << parameters.image >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>

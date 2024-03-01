@@ -14,7 +14,7 @@ steps:
         - restore_cache:
             key: cosign-cache-<< parameters.version >>
   - run:
-      name: Install Cosign << parameters.version >>
+      name: Install Cosign
       environment:
         PARAM_VERSION: << parameters.version >>
       command: << include(scripts/install.sh) >>

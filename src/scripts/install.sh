@@ -2,6 +2,8 @@
 
 set -e
 
+PARAM_VERSION=$(eval echo "${PARAM_VERSION}")
+
 if [[ -f cosign.tar.gz ]]; then
     tar xzf cosign.tar.gz
 fi
