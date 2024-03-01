@@ -8,7 +8,7 @@ parameters:
     description: Base-64 encoded public key.
 steps:
   - run:
-      name: Verify signature for << parameters.image >>
+      name: Verify signature
       environment:
         PARAM_IMAGE: << parameters.image >>
         PARAM_PUBLIC_KEY: << parameters.public_key >>

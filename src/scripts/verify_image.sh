@@ -2,6 +2,9 @@
 
 set -e
 
+PARAM_IMAGE=$(eval echo "${PARAM_IMAGE}")
+PARAM_PUBLIC_KEY=$(eval echo "${PARAM_PUBLIC_KEY}")
+
 # Load public key, normally a base64 encoded secret within a CircleCI context
 echo "${PARAM_PUBLIC_KEY}" | base64 --decode > cosign.pub
 
