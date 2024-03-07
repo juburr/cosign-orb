@@ -6,10 +6,14 @@ parameters:
   private_key:
     type: string
     description: Base-64 encoded private key.
+  password:
+    type: string
+    description: Password to use the private key.
 steps:
   - run:
       name: Sign image
       environment:
         PARAM_IMAGE: << parameters.image >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>
+        PARAM_PASSWORD: << parameters.password >>
       command: << include(scripts/sign_image.sh) >>

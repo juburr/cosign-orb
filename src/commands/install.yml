@@ -5,7 +5,7 @@ parameters:
     default: true
   version:
     type: string
-    default: "1.13.1"
+    default: "2.2.3"
     description: Specify the semver of the Cosign version to install.
 steps:
   - when:
