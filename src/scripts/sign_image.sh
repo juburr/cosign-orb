@@ -124,7 +124,7 @@ export COSIGN_PASSWORD="${PARAM_PASSWORD}"
 # Sign the image using its digest
 echo "Signing ${IMAGE_URI_DIGEST}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign1 sign --key cosign.key --no-tlog-upload "${IMAGE_URI_DIGEST}"
+    cosign sign --key cosign.key --no-tlog-upload "${IMAGE_URI_DIGEST}"
 else
     cosign sign --key cosign.key --tlog-upload=false "${IMAGE_URI_DIGEST}"
 fi
