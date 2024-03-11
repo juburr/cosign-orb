@@ -15,6 +15,7 @@ set -e
 #   - Unsupported: $VARIABLE
 expand_circleci_env_vars() {
     search_substring=${1}
+    aggressive_mode=${2}
     result=""
 
     regex="([^}]*)[$]\{([a-zA-Z_]+[a-zA-Z0-9_]*)\}(.*)"
@@ -35,12 +36,12 @@ expand_circleci_env_vars() {
 
     # If we're not running in aggressive mode, we can go ahead
     # and return the result at this point
-    if [[ "${AGGRESSIVE_MODE}" != "true" ]]; then
+    if [[ "${aggressive_mode}" != "true" ]]; then
         echo "${result}${search_substring}"
         return 0
     fi
 
-    search_substring="${result}"
+    search_substring="${result}${search_substring}"
     result=""
 
     # In aggressive mode we handle the non-squiggly brace syntax: $VARIABLE
