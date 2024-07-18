@@ -112,12 +112,20 @@ echo "Determining image URI digest..."
 IMAGE_URI_DIGEST=""
 if command -v crane 1> /dev/null; then
     echo "  Tool: crane"
+    # While docker inspect returns registry/image@sha256:hash, crane simply returns
+    # sha256:hash. We need to add the registry/image@ prefix ourselves.
     DIGEST=$(crane digest "${PARAM_IMAGE}")
     IMAGE_WITHOUT_TAG=$(echo "${PARAM_IMAGE}" | cut -d ':' -f 1)
     IMAGE_URI_DIGEST="${IMAGE_WITHOUT_TAG}@${DIGEST}"
 elif command -v docker 1> /dev/null; then
     echo "  Tool: docker"
-    IMAGE_URI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${PARAM_IMAGE}")
+    # When pushing a single image to multiple registries, docker inspect always returns
+    # a registry/image@sha256:hash value with the first registry you attempted to use, even if
+    # $PARAM_IMAGE is that of the second registry. Reconstruct the correct value ourselves.
+    DIGEST_WITH_REGISTRY=$(docker inspect --format='{{index .RepoDigests 0}}' "${PARAM_IMAGE}")
+    DIGEST=$(echo "${DIGEST_WITH_REGISTRY}" | cut -d '@' -f 2)
+    IMAGE_WITHOUT_TAG=$(echo "${PARAM_IMAGE}" | cut -d ':' -f 1)
+    IMAGE_URI_DIGEST="${IMAGE_WITHOUT_TAG}@${DIGEST}"
 else
     echo "This orb requires that either crane or docker be installed."
     cleanup_secrets
