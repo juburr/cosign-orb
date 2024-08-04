@@ -2,6 +2,9 @@
 
 set -e
 
+# Read in orb parameters
+VERSION=$(circleci env subst "${PARAM_VERSION}")
+
 # Check if the cosign tar file was in the CircleCI cache.
 # Cache restoration is handled in install.yml
 if [[ -f cosign.tar.gz ]]; then
@@ -11,7 +14,7 @@ fi
 # If there was no cache hit, go ahead and re-download the binary.
 # Tar it up to save on cache space used.
 if [[ ! -f cosign-linux-amd64 ]]; then
-    wget "https://github.com/sigstore/cosign/releases/download/v${PARAM_VERSION}/cosign-linux-amd64"
+    wget "https://github.com/sigstore/cosign/releases/download/v${VERSION}/cosign-linux-amd64"
     tar czf cosign.tar.gz cosign-linux-amd64
 fi
 
