@@ -11,7 +11,7 @@ set -e
 # from prompting for a password in the CI pipeline.
 IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
-COSIGN_PASSWORD=${!PARAM_PASSWORD}
+export COSIGN_PASSWORD=${!PARAM_PASSWORD}
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
