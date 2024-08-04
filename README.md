@@ -1,5 +1,5 @@
 <div align="center">
-  <img align="center" width="320" src="assets/logos/cosign-orb-logo.png" alt="Cosign Orb">
+  <img align="center" width="320" src="assets/logos/cosign-orb.png" alt="Cosign Orb">
   <h1>CircleCI Cosign Orb</h1>
   <i>An orb for simplifying Cosign installation and use within CircleCI.</i><br /><br />
 </div>
