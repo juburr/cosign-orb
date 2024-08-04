@@ -3,6 +3,7 @@
 set -e
 
 # Read in orb parameters
+INSTALL_PATH=$(circleci env subst "${PARAM_INSTALL_PATH}")
 VERSION=$(circleci env subst "${PARAM_VERSION}")
 
 # Check if the cosign tar file was in the CircleCI cache.
@@ -21,5 +22,5 @@ fi
 # A cosign binary should exist at this point, regardless of whether it was obtained
 # through cache or re-downloaded. Move it to an appropriate bin directory and mark it
 # as executable.
-sudo mv cosign-linux-amd64 /usr/local/bin/cosign
-sudo chmod +x /usr/local/bin/cosign
+mv cosign-linux-amd64 "${INSTALL_PATH}/cosign"
+chmod +x "${INSTALL_PATH}/cosign"
