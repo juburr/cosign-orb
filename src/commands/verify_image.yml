@@ -4,8 +4,9 @@ parameters:
     type: string
     description: Container image to be signed. Include the full path with the tag at the end.
   public_key:
-    type: string
+    type: env_var_name
     description: Base-64 encoded public key.
+    default: COSIGN_PUBLIC_KEY
 steps:
   - run:
       name: Verify signature

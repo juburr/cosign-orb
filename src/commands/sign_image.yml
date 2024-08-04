@@ -4,11 +4,13 @@ parameters:
     type: string
     description: Container image to be signed. Include the full path with the tag at the end.
   private_key:
-    type: string
+    type: env_var_name
     description: Base-64 encoded private key.
+    default: COSIGN_PRIVATE_KEY
   password:
-    type: string
+    type: env_var_name
     description: Password to use the private key.
+    default: COSIGN_PASSWORD
 steps:
   - run:
       name: Sign image
