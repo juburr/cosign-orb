@@ -3,6 +3,10 @@ parameters:
   caching:
     type: boolean
     default: true
+  install_path:
+    type: string
+    default: "/home/circleci/bin"
+    description: Path to a binary directory not requiring root access (no trailing slash).
   version:
     type: string
     default: "2.2.4"
@@ -16,6 +20,7 @@ steps:
   - run:
       name: Install Cosign
       environment:
+        PARAM_INSTALL_PATH: << parameters.install_path >>
         PARAM_VERSION: << parameters.version >>
       command: << include(scripts/install.sh) >>
   - when:
