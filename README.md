@@ -8,6 +8,15 @@
 
 This is an unofficial Cosign orb for installing Cosign in your CircleCI pipeline. Use it to sign container images and verify signatures. Contributions are welcome!
 
+## Features
+- **Secure Installation**
+  - **Least Privilege**: Installs to a user-owned directory by default; no `sudo` usage anywhere in this orb!
+  - **Integrity**: Checksum validation of all downloads using SHA-512.
+  - **Provenance**: Installs directly from the official [Cosign GitHub releases](https://github.com/sigstore/cosign/releases/) page. No third-party websites or domains!
+  - **Confidentiality**: Secrets and environment variables are handled in accordance with CircleCI's [security recommendations](https://circleci.com/docs/security-recommendations/) and [best practices](https://circleci.com/docs/orbs-best-practices/).
+
+## Usage
+
 ### Installation
 
 Use the `cosign-orb` to handle installation of Cosign within your CircleCI pipeline without needing to create a custom base image. After installation, you can then use the `cosign` command anywhere within your job. Caching is supported if you want to prevent re-downloading Cosign on successive runs of your pipeline, though the download and installation are normally extremely fast.
@@ -17,7 +26,7 @@ Use the `cosign-orb` to handle installation of Cosign within your CircleCI pipel
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@0.2.1
+  cosign: juburr/cosign-orb@0.3.0
 
 parameters:
   cimg_base_version:
@@ -25,7 +34,7 @@ parameters:
     default: "stable-20.04"
   cosign_version:
     type: string
-    default: "2.2.3"
+    default: "2.2.4"
 
 jobs:
   sign_container:
@@ -35,6 +44,7 @@ jobs:
       - checkout
       - cosign/install:
           caching: true
+          verify_checksums: strict
           version: << pipeline.parameters.cosign_version >>
       - run:
           name: Run Custom Cosign Commands
@@ -43,5 +53,3 @@ jobs:
             cosign version
 ```
 
-### Provenance
-This orb installs Cosign directly from the official GitHub [releases page](https://github.com/sigstore/cosign/releases/) for the Cosign project. A future version of this orb will also provide checksum verification for every download.
