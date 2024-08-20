@@ -4,11 +4,11 @@ description: >
 usage:
   version: 2.1
   orbs:
-    cosign: juburr/cosign-orb@1.0.0
+    cosign: juburr/cosign-orb@0.3.3
   jobs:
     sign-images:
       docker:
-        - image: cimg/base:stable
+        - image: cimg/base:current-22.04
       steps:
         - cosign/install
   workflows:

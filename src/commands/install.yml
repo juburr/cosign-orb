@@ -10,7 +10,7 @@ parameters:
   verify_checksums:
     type: enum
     enum: ["false", "known_versions", "strict"]
-    default: strict
+    default: known_versions
     description: Option to perform SHA-512 checksum verification on the downloaded Cosign executable.
   version:
     type: string
