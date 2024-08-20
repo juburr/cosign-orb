@@ -16,6 +16,10 @@ This is an unofficial Cosign orb for installing Cosign in your CircleCI pipeline
 - **Confidentiality**: All secrets and environment variables are handled in accordance with CircleCI's [security recommendations](https://circleci.com/docs/security-recommendations/) and [best practices](https://circleci.com/docs/orbs-best-practices/).
 - **Privacy**: No usage data of any kind is collected or shipped back to the orb developer.
 
+Info for security teams:
+- Required external access to allow, if running a locked down, self-hosted CircleCI pipeline on-prem:
+  - `github.com`: For download and installation of the Cosign tool.
+
 ## Usage
 
 ### Installation
@@ -27,12 +31,12 @@ Use the `cosign-orb` to handle installation of Cosign within your CircleCI pipel
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@0.3.0
+  cosign: juburr/cosign-orb@0.3.3
 
 parameters:
   cimg_base_version:
     type: string
-    default: "stable-20.04"
+    default: "current-22.04"
   cosign_version:
     type: string
     default: "2.2.4"
