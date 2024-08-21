@@ -1,0 +1,20 @@
+description: Verifies an attestation attached to a container image.
+parameters:
+  image:
+    type: string
+    description: Container image to attach the attestation to.
+  public_key:
+    type: env_var_name
+    description: Environment variable that holds the base-64 encoded public key.
+    default: COSIGN_PUBLIC_KEY
+  predicate_type:
+    type: string
+    description: The predicate type. Common types are spdx, spdxjson, cyclonedx, and vuln.
+steps:
+  - run:
+      name: Verify Attestation
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_PREDICATE_TYPE: << parameters.predicate_type >>
+        PARAM_PUBLIC_KEY: << parameters.public_key >>
+      command: << include(scripts/verify_attestation.sh) >>
