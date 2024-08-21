@@ -1,0 +1,29 @@
+description: Attaches an attestation to a container image using Cosign.
+parameters:
+  image:
+    type: string
+    description: Container image to attach the attestation to.
+  predicate:
+    type: string
+    description: Path to the predicate file.
+  private_key:
+    type: env_var_name
+    description: Environment variable that holds the base-64 encoded private key.
+    default: COSIGN_PRIVATE_KEY
+  password:
+    type: env_var_name
+    description: Environment variable that holds the password for the private key.
+    default: COSIGN_PASSWORD
+  predicate_type:
+    type: string
+    description: The predicate type. Common types are spdx, spdxjson, cyclonedx, and vuln.
+steps:
+  - run:
+      name: Attach Attestation
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_PREDICATE: << parameters.predicate >>
+        PARAM_PREDICATE_TYPE: << parameters.predicate_type >>
+        PARAM_PRIVATE_KEY: << parameters.private_key >>
+        PARAM_PASSWORD: << parameters.password >>
+      command: << include(scripts/attest.sh) >>
