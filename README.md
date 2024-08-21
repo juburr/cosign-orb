@@ -6,7 +6,9 @@
 
 [![CircleCI Build Status](https://circleci.com/gh/juburr/cosign-orb.svg?style=shield "CircleCI Build Status")](https://circleci.com/gh/juburr/cosign-orb) [![CircleCI Orb Version](https://badges.circleci.com/orbs/juburr/cosign-orb.svg)](https://circleci.com/developer/orbs/orb/juburr/cosign-orb) [![GitHub License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](https://raw.githubusercontent.com/juburr/cosign-orb/master/LICENSE) [![CircleCI Community](https://img.shields.io/badge/community-CircleCI%20Discuss-343434.svg)](https://discuss.circleci.com/c/ecosystem/orbs)
 
-This is an unofficial Cosign orb for installing Cosign in your CircleCI pipeline. Use it to sign container images and verify signatures. Contributions are welcome!
+This is an unofficial Cosign orb for installing Cosign in your CircleCI pipeline. Use it to sign container images and verify signatures.
+
+This orb is primarily intended for use by private organizations at this time. Notice that the convenience commands provided in the initial version of this orb don't attempt to use keyless signing, upload to transparency logs, etc. They assume a simple setup with a public/private key pair stored as base64 encoded secrets within a CircleCI context. If advanced features are needed, you can use this orb for installation only and then run the cosign binary with your own arguments. Contributions are welcome!
 
 ## Features
 ### **Secure By Design**

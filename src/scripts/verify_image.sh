@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set +o history
 
 # Ensure CircleCI environment variables can be passed in as orb parameters
 IMAGE=$(circleci env subst "${PARAM_IMAGE}")

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set +o history
 
 # Read in orb parameters
 INSTALL_PATH=$(circleci env subst "${PARAM_INSTALL_PATH}")
