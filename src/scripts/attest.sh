@@ -21,7 +21,7 @@ export COSIGN_PASSWORD=${!PARAM_PASSWORD}
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    shred -vzu -n 10 cosign.key 2> /dev/null || true
+    shred -vzuf -n 10 cosign.key 2> /dev/null || true
     unset PARAM_PRIVATE_KEY
     unset PARAM_PASSWORD
     unset COSIGN_PRIVATE_KEY
@@ -83,7 +83,6 @@ else
     cleanup_secrets
     exit 1
 fi
-echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
 
 # Load the private key, normally a base64 encoded secret within a CircleCI context
 # Note that a Cosign v2 key used with Cosign v1 may throw: unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY

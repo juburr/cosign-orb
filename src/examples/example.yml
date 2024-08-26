@@ -4,7 +4,7 @@ description: >
 usage:
   version: 2.1
   orbs:
-    cosign: juburr/cosign-orb@0.3.3
+    cosign: juburr/cosign-orb@0.6.1
   jobs:
     sign-images:
       docker:
