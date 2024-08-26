@@ -15,7 +15,7 @@ PASSWORD=${!PARAM_PASSWORD}
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    shred -vzu -n 10 cosign.key 2> /dev/null || true
+    shred -vzuf -n 10 cosign.key 2> /dev/null || true
     unset PARAM_PRIVATE_KEY
     unset PARAM_PASSWORD
     unset PASSWORD

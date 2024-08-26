@@ -11,7 +11,7 @@ COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    shred -vzu -n 10 cosign.pub 2> /dev/null || true
+    shred -vzuf -n 10 cosign.pub 2> /dev/null || true
     unset PARAM_PUBLIC_KEY
     unset COSIGN_PUBLIC_KEY
     echo "Secrets destroyed."
