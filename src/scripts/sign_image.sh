@@ -8,13 +8,9 @@ set -e
 set +o history
 
 # Read in orb parameters
-IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
-
-# COSIGN_PASSWORD is a special env var used by the Cosign tool, and must be exported for
-# it to be used by Cosign. Setting it here prevents the "cosign sign" command from prompting
-# for a password in the CI pipeline.
-export COSIGN_PASSWORD=${!PARAM_PASSWORD}
+IMAGE=$(circleci env subst "${PARAM_IMAGE}")
+PASSWORD=${!PARAM_PASSWORD}
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
@@ -22,11 +18,21 @@ cleanup_secrets() {
     shred -vzu -n 10 cosign.key 2> /dev/null || true
     unset PARAM_PRIVATE_KEY
     unset PARAM_PASSWORD
+    unset PASSWORD
     unset COSIGN_PRIVATE_KEY
     unset COSIGN_PASSWORD
     echo "Secrets destroyed."
 }
 trap cleanup_secrets EXIT
+
+# COSIGN_PASSWORD is a special env var used by the Cosign tool, and must be exported for
+# it to be used by Cosign. Setting it here prevents the "cosign sign" command from prompting
+# for a password in the CI pipeline.
+if ! type export | grep -q 'export is a shell builtin'; then
+    echo "The export command is not a shell builtin. It is not safe to proceed."
+    exit 1
+fi
+export COSIGN_PASSWORD="${PASSWORD}"
 
 # Verify Cosign version is supported
 COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
@@ -80,6 +86,8 @@ echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
 # Note that a Cosign v2 key used with Cosign v1 may throw: unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY
 echo "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key
 echo "Wrote private key: cosign.key"
+chmod 0400 cosign.key
+echo "Set private key permissions: 0400"
 
 # Sign the image using its digest
 echo "Signing ${IMAGE_URI_DIGEST}..."
