@@ -28,6 +28,9 @@ echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Load public key, normally a base64 encoded secret within a CircleCI context
 echo "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign.pub
+echo "Wrote public key: cosign.pub"
+chmod 0400 cosign.pub
+echo "Set public key permissions: 0400"
 
 # Verify image signature using the public key
 echo "Verifying cosign signature for ${IMAGE}..."

@@ -12,6 +12,10 @@ COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
 # COSIGN_PASSWORD is a special env var used by the Cosign tool, and must be exported for
 # it to be used by Cosign. Setting it here prevents the "cosign sign" command from prompting
 # for a password in the CI pipeline.
+if ! type export | grep -q 'export is a shell builtin'; then
+    echo "The export command is not a shell builtin. It is not safe to proceed."
+    exit 1
+fi
 export COSIGN_PASSWORD=${!PARAM_PASSWORD}
 
 # Cleanup makes a best effort to destroy all secrets.
@@ -85,6 +89,8 @@ echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
 # Note that a Cosign v2 key used with Cosign v1 may throw: unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY
 echo "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key
 echo "Wrote private key: cosign.key"
+chmod 0400 cosign.key
+echo "Set private key permissions: 0400"
 
 # Sign the image using its digest
 echo "Signing ${IMAGE_URI_DIGEST}..."

@@ -20,7 +20,7 @@ This orb is primarily intended for use by private organizations at this time. No
 
 Info for security teams:
 - Required external access to allow, if running a locked down, self-hosted CircleCI pipeline on-prem:
-  - `github.com`: For download and installation of the Cosign tool.
+  - `github.com`: For download and installation of the Cosign tool using HTTPS.
 
 ## Usage
 
@@ -33,7 +33,7 @@ Use the `cosign-orb` to handle installation of Cosign within your CircleCI pipel
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@0.3.3
+  cosign: juburr/cosign-orb@0.4.0
 
 parameters:
   cimg_base_version:
