@@ -33,7 +33,7 @@ Use the `cosign-orb` to handle installation of Cosign within your CircleCI pipel
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@0.6.1
+  cosign: juburr/cosign-orb@0.6.2
 
 parameters:
   cimg_base_version:
@@ -41,7 +41,7 @@ parameters:
     default: "current-22.04"
   cosign_version:
     type: string
-    default: "2.2.4"
+    default: "2.4.1"
 
 jobs:
   sign_container:
