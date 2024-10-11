@@ -17,6 +17,7 @@ echo "  VERSION: ${VERSION}"
 # Lookup table of sha512 checksums for different versions of cosign-linux-amd64
 declare -A sha512sums
 sha512sums=(
+    ["2.4.1"]="6aaed7f63bf6ae7dea27a982d6cf5de8ec50876d5fb5ad9e38c9c178786929aa7930da8cde1aafbe76e5026366fc6006da1812995eb1dc2c1894b52e0e6ed191"
     ["2.4.0"]="acf268337df43040e31f5d83628c0556a81edd2e7b91ff7640cb34862e5200fb7c313389001a0be4ee65a554ef225fcd9ab18e10bc2e3f5dba7effe2ff84d8bb"
     ["2.3.0"]="d5339dc2915c9078c15218557f8e5123b640ef4fe6b5fd402548b2c744c85d4f7549b1fcfb5712cd5dfc51bdb43253ea459e83bf00b435d03e81a6c0773835ec"
     ["2.2.4"]="1b2fcf9eeb03ffdb2b552b608dbc6c68f9a3be5dac1bda81ed8308fb116a17b04d5e7d72e5da7aa2025932db4c0d48967abeeac5b0056882b82cb897aa1eeb72"
