@@ -14,7 +14,7 @@ parameters:
     description: Option to perform SHA-512 checksum verification on the downloaded Cosign executable.
   version:
     type: string
-    default: "2.2.4"
+    default: "2.5.0"
     description: Specify the semantic version of Cosign to install.
 steps:
   - when:
