@@ -91,7 +91,14 @@ fi
 # If there was no cache hit, go ahead and re-download the binary.
 # Tar it up to save on cache space used.
 if [[ ! -f cosign-linux-amd64 ]]; then
-    wget "https://github.com/sigstore/cosign/releases/download/v${VERSION}/cosign-linux-amd64"
+    if command -v wget &> /dev/null; then
+        wget "https://github.com/sigstore/cosign/releases/download/v${VERSION}/cosign-linux-amd64"
+    elif command -v curl &> /dev/null; then
+        curl -L "https://github.com/sigstore/cosign/releases/download/v${VERSION}/cosign-linux-amd64" -o cosign-linux-amd64
+    else
+        echo "ERROR: Neither wget nor curl is available. Please install one of them."
+        exit 1
+    fi
     tar czf cosign.tar.gz cosign-linux-amd64
 fi
 
