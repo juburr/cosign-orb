@@ -24,7 +24,7 @@ jobs:
   # You may want to add additional validation steps to ensure the commands are working as expected.
   command-test:
     docker:
-      - image: cimg/base:current
+      - image: cimg/base:current-22.04
     steps:
       - checkout
       - cosign-orb/install
