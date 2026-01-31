@@ -20,8 +20,8 @@ trap cleanup_secrets EXIT
 # Verify Cosign version is supported
 COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
-if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ]; then
-    echo "Unsupported Cosign version: ${MAJOR_VERSION}"
+if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
+    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
     exit 1
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
@@ -37,7 +37,8 @@ echo "Verifying cosign signature for ${IMAGE}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     cosign verify --key cosign.pub "${IMAGE}"
 else
-    cosign verify --private-infrastructure=true --key cosign.pub "${IMAGE}"
+    # Cosign v2 and v3: --private-infrastructure flag works in both versions
+    cosign verify --private-infrastructure --key cosign.pub "${IMAGE}"
 fi
 
 # Cleanup

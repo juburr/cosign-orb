@@ -37,8 +37,8 @@ export COSIGN_PASSWORD="${PASSWORD}"
 # Verify Cosign version is supported
 COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
-if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ]; then
-    echo "Unsupported Cosign version: ${MAJOR_VERSION}"
+if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
+    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
     cleanup_secrets
     exit 1
 fi
@@ -93,6 +93,9 @@ echo "Set private key permissions: 0400"
 echo "Signing ${IMAGE_URI_DIGEST}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     cosign sign --key cosign.key --no-tlog-upload "${IMAGE_URI_DIGEST}"
-else
+elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
     cosign sign --key cosign.key --tlog-upload=false "${IMAGE_URI_DIGEST}"
+else
+    # Cosign v3: Use --no-upload instead of deprecated --tlog-upload flag
+    cosign sign --key cosign.key --upload=false "${IMAGE_URI_DIGEST}"
 fi

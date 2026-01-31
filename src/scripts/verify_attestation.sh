@@ -8,6 +8,15 @@ IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 PREDICATE_TYPE=$(circleci env subst "${PARAM_PREDICATE_TYPE}")
 COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
 
+# Verify Cosign version is supported (v2+ required for --private-infrastructure flag)
+COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
+COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
+if [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
+    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}. This command requires Cosign v2 or v3."
+    exit 1
+fi
+echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
+
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."

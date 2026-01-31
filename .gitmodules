@@ -1,0 +1,3 @@
+[submodule "ref/cosign"]
+	path = ref/cosign
+	url = https://github.com/sigstore/cosign.git
