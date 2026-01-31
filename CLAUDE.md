@@ -47,6 +47,14 @@ The v3 approach creates a minimal signing config file inline:
 {"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
 ```
 
+### Key Format Compatibility
+
+**Warning:** Cosign v1 and v2+ use incompatible key formats:
+- v1: `ENCRYPTED COSIGN PRIVATE KEY`
+- v2+: `ENCRYPTED SIGSTORE PRIVATE KEY`
+
+Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY`). The CI pipeline generates v1-compatible keys dynamically for v1 integration tests.
+
 ### Checksum Verification
 
 `src/scripts/install.sh` contains a lookup table of SHA-512 checksums for 75+ Cosign versions. Three verification modes:
@@ -87,17 +95,16 @@ The CI pipeline uses CircleCI contexts for secrets:
 | Context | Variables | Purpose |
 |---------|-----------|---------|
 | `orb-publishing` | Registry credentials | Publishing orb to CircleCI registry |
-| `cosign_ctx` | `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`, `COSIGN_PRIVATE_KEY` | Signing/verification tests |
 
-Note: Keys in `cosign_ctx` are base64-encoded and must be decoded before use.
+Integration tests generate throwaway key pairs dynamically rather than using stored secrets. This is more secure and avoids key format compatibility issues between Cosign versions.
 
 ### Test Coverage
 
 The test pipeline validates:
-1. **Install command** - Multiple Cosign versions (v2.x, v3.x) with checksum verification
+1. **Install command** - Multiple Cosign versions (v1.x, v2.x, v3.x) with checksum verification
 2. **Sign/Verify workflow** - Full image signing and verification cycle
 3. **Attest/Verify workflow** - Attestation creation and verification
-4. **Version compatibility** - Ensures scripts work correctly with both v2 and v3
+4. **Version compatibility** - Ensures scripts work correctly with v1, v2, and v3
 
 ## Release Process
 

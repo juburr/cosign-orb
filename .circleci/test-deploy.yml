@@ -78,6 +78,23 @@ jobs:
               exit 1
             fi
 
+  # Test install command with specific v1 version
+  test-install-v1:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "1.13.6"
+      - run:
+          name: Verify Cosign version
+          command: |
+            VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+            echo "Installed version: ${VERSION}"
+            if [[ "${VERSION}" != "v1.13.6" ]]; then
+              echo "ERROR: Expected v1.13.6, got ${VERSION}"
+              exit 1
+            fi
+
   # Test install with strict checksum verification
   test-install-checksum-strict:
     executor: docker-executor
@@ -95,7 +112,6 @@ jobs:
     docker:
       - image: cimg/base:current-22.04
     environment:
-      # Generate unique image tag for this test run
       IMAGE_TTL: 1h
     steps:
       - checkout
@@ -103,6 +119,18 @@ jobs:
           docker_layer_caching: true
       - cosign-orb/install:
           version: "3.0.4"
+      - run:
+          name: Generate throwaway key pair
+          command: |
+            # Generate throwaway keys for testing - do not use production keys
+            export COSIGN_PASSWORD="test-password-v3"
+            cosign generate-key-pair
+            # Export base64-encoded keys for orb commands
+            echo "export COSIGN_PASSWORD='test-password-v3'" >> "${BASH_ENV}"
+            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
+            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
+            # Clean up key files (orb will recreate from env vars)
+            rm -f cosign.key cosign.pub
       - run:
           name: Generate unique image reference
           command: |
@@ -115,7 +143,6 @@ jobs:
           name: Build and push test image
           command: |
             # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
-            # This image contains only a timestamp for testing purposes.
             echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
             printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
             docker build -t "${IMAGE_REF}" .
@@ -151,11 +178,83 @@ jobs:
       - cosign-orb/install:
           version: "2.5.3"
       - run:
+          name: Generate throwaway key pair
+          command: |
+            # Generate throwaway keys for testing - do not use production keys
+            export COSIGN_PASSWORD="test-password-v2"
+            cosign generate-key-pair
+            # Export base64-encoded keys for orb commands
+            echo "export COSIGN_PASSWORD='test-password-v2'" >> "${BASH_ENV}"
+            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
+            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
+            # Clean up key files (orb will recreate from env vars)
+            rm -f cosign.key cosign.pub
+      - run:
           name: Generate unique image reference
           command: |
             IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
             # Use different suffix to avoid collision with v3 test
             IMAGE_REF="ttl.sh/cosign-orb-test-v2-${IMAGE_UUID}:${IMAGE_TTL}"
+            echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
+            echo "Test image: ${IMAGE_REF}"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
+            echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            docker build -t "${IMAGE_REF}" .
+            # Push directly to ttl.sh (anonymous push supported)
+            docker push "${IMAGE_REF}"
+            echo "Pushed test image to ${IMAGE_REF}"
+      - cosign-orb/sign_image:
+          image: ${IMAGE_REF}
+      - cosign-orb/verify_image:
+          image: ${IMAGE_REF}
+      - run:
+          name: Create test attestation predicate
+          command: |
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/attest:
+          image: ${IMAGE_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_REF}
+          predicate_type: slsaprovenance
+
+  # Integration test: sign and verify image with Cosign v1
+  # NOTE: v1 uses a different key format than v2/v3, so we generate keys dynamically
+  integration-test-v1:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      IMAGE_TTL: 1h
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - cosign-orb/install:
+          version: "1.13.6"
+      - run:
+          name: Generate v1-compatible key pair
+          command: |
+            # Cosign v1 uses different key format than v2/v3
+            # Generate keys dynamically for this test
+            export COSIGN_PASSWORD="test-password-v1"
+            cosign generate-key-pair
+            # Export base64-encoded keys for orb commands
+            echo "export COSIGN_PASSWORD='test-password-v1'" >> "${BASH_ENV}"
+            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
+            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
+            # Clean up key files (orb will recreate from env vars)
+            rm -f cosign.key cosign.pub
+      - run:
+          name: Generate unique image reference
+          command: |
+            IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
+            # Use different suffix to avoid collision with other tests
+            IMAGE_REF="ttl.sh/cosign-orb-test-v1-${IMAGE_UUID}:${IMAGE_TTL}"
             echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
             echo "Test image: ${IMAGE_REF}"
       - run:
@@ -194,15 +293,17 @@ workflows:
           filters: *filters
       - test-install-v2:
           filters: *filters
+      - test-install-v1:
+          filters: *filters
       - test-install-checksum-strict:
           filters: *filters
 
-      # Integration tests - require cosign_ctx for signing keys
+      # Integration tests - generate throwaway keys, no context needed
       - integration-test-v3:
-          context: cosign_ctx
           filters: *filters
       - integration-test-v2:
-          context: cosign_ctx
+          filters: *filters
+      - integration-test-v1:
           filters: *filters
 
       # Orb publishing
@@ -217,8 +318,10 @@ workflows:
             - test-install-default
             - test-install-v3
             - test-install-v2
+            - test-install-v1
             - test-install-checksum-strict
             - integration-test-v3
             - integration-test-v2
+            - integration-test-v1
           context: orb-publishing
           filters: *release-filters
