@@ -86,7 +86,23 @@ fi
 
 # Load the private key, normally a base64 encoded secret within a CircleCI context
 # Note that a Cosign v2 key used with Cosign v1 may throw: unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY
-echo "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key
+if [[ -z "${COSIGN_PRIVATE_KEY}" ]]; then
+    echo "ERROR: Private key is empty. Check that the environment variable is set correctly."
+    cleanup_secrets
+    exit 1
+fi
+# Use printf instead of echo for more predictable handling of special characters
+# The || true prevents set -e from exiting on decode failure; we check the result below
+if ! printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key 2>&1; then
+    echo "ERROR: Failed to decode private key. Ensure it is valid base64."
+    cleanup_secrets
+    exit 1
+fi
+if [[ ! -s cosign.key ]]; then
+    echo "ERROR: Decoded private key is empty."
+    cleanup_secrets
+    exit 1
+fi
 echo "Wrote private key: cosign.key"
 chmod 0400 cosign.key
 echo "Set private key permissions: 0400"
@@ -108,11 +124,15 @@ elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
         --tlog-upload=false \
         "${IMAGE_URI_DIGEST}"
 else
-    # Cosign v3: Use --no-upload instead of deprecated --tlog-upload flag
+    # Cosign v3: Create an empty signing config for private infrastructure (no Rekor, Fulcio, TSA)
+    # This is the non-deprecated approach, replacing --tlog-upload=false
+    SIGNING_CONFIG=$(mktemp)
+    printf '{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}\n' > "${SIGNING_CONFIG}"
     cosign attest \
         --predicate "${PREDICATE}" \
         --type "${PREDICATE_TYPE}" \
         --key cosign.key \
-        --no-upload \
+        --signing-config="${SIGNING_CONFIG}" \
         "${IMAGE_URI_DIGEST}"
+    rm -f "${SIGNING_CONFIG}"
 fi

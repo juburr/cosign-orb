@@ -37,10 +37,15 @@ src/
 
 ### Version Compatibility
 
-Scripts handle Cosign v1, v2, and v3 with version-specific flags:
+Scripts handle Cosign v1, v2, and v3 with version-specific approaches for private infrastructure (no transparency log):
 - v1: `--no-tlog-upload`
 - v2: `--tlog-upload=false`
-- v3: `--upload=false` / `--no-upload`
+- v3: `--signing-config=<path>` with an empty signing config JSON (no Rekor/Fulcio/TSA services)
+
+The v3 approach creates a minimal signing config file inline:
+```json
+{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
+```
 
 ### Checksum Verification
 
@@ -62,6 +67,37 @@ Scripts handle Cosign v1, v2, and v3 with version-specific flags:
 - `.circleci/test-deploy.yml` - Test and publish workflow
 - `src/commands/*.yml` - Orb command definitions with parameters
 - `src/scripts/*.sh` - Shell implementations
+
+## CI Testing
+
+### Test Registry (ttl.sh)
+
+Integration tests use [ttl.sh](https://ttl.sh), a free ephemeral container registry that requires no authentication. Images are automatically deleted after the specified TTL.
+
+**⚠️ SECURITY WARNING: ttl.sh is a third-party service outside our control.**
+- **NEVER** include sensitive information, secrets, keys, or PII in test images
+- **NEVER** assume images are truly ephemeral - they could be archived or read by others
+- Test images should contain only minimal, non-sensitive content (e.g., empty files, timestamp strings)
+- Always use unique UUIDs in image names to avoid collisions
+
+### Test Contexts
+
+The CI pipeline uses CircleCI contexts for secrets:
+
+| Context | Variables | Purpose |
+|---------|-----------|---------|
+| `orb-publishing` | Registry credentials | Publishing orb to CircleCI registry |
+| `cosign_ctx` | `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`, `COSIGN_PRIVATE_KEY` | Signing/verification tests |
+
+Note: Keys in `cosign_ctx` are base64-encoded and must be decoded before use.
+
+### Test Coverage
+
+The test pipeline validates:
+1. **Install command** - Multiple Cosign versions (v2.x, v3.x) with checksum verification
+2. **Sign/Verify workflow** - Full image signing and verification cycle
+3. **Attest/Verify workflow** - Attestation creation and verification
+4. **Version compatibility** - Ensures scripts work correctly with both v2 and v3
 
 ## Release Process
 

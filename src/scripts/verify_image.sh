@@ -27,7 +27,19 @@ fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Load public key, normally a base64 encoded secret within a CircleCI context
-echo "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign.pub
+if [[ -z "${COSIGN_PUBLIC_KEY}" ]]; then
+    echo "ERROR: Public key is empty. Check that the environment variable is set correctly."
+    exit 1
+fi
+# Use printf instead of echo for more predictable handling of special characters
+if ! printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign.pub 2>&1; then
+    echo "ERROR: Failed to decode public key. Ensure it is valid base64."
+    exit 1
+fi
+if [[ ! -s cosign.pub ]]; then
+    echo "ERROR: Decoded public key is empty."
+    exit 1
+fi
 echo "Wrote public key: cosign.pub"
 chmod 0400 cosign.pub
 echo "Set public key permissions: 0400"

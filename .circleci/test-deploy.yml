@@ -19,36 +19,206 @@ release-filters: &release-filters
   tags:
     only: /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
-jobs:
-  # Create jobs to test the commands of your orbs.
-  # You may want to add additional validation steps to ensure the commands are working as expected.
-  command-test:
+executors:
+  docker-executor:
     docker:
       - image: cimg/base:current-22.04
+
+jobs:
+  # Test install command with default version (v3)
+  test-install-default:
+    executor: docker-executor
     steps:
       - checkout
       - cosign-orb/install
       - run:
-          name: Verify Install
+          name: Verify Cosign installed
           command: command -v cosign
+      - run:
+          name: Verify Cosign version is v3
+          command: |
+            VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+            echo "Installed version: ${VERSION}"
+            if [[ ! "${VERSION}" =~ ^v3\. ]]; then
+              echo "ERROR: Expected v3.x, got ${VERSION}"
+              exit 1
+            fi
+
+  # Test install command with specific v3 version
+  test-install-v3:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "3.0.3"
+      - run:
+          name: Verify Cosign version
+          command: |
+            VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+            echo "Installed version: ${VERSION}"
+            if [[ "${VERSION}" != "v3.0.3" ]]; then
+              echo "ERROR: Expected v3.0.3, got ${VERSION}"
+              exit 1
+            fi
+
+  # Test install command with specific v2 version
+  test-install-v2:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "2.5.3"
+      - run:
+          name: Verify Cosign version
+          command: |
+            VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+            echo "Installed version: ${VERSION}"
+            if [[ "${VERSION}" != "v2.5.3" ]]; then
+              echo "ERROR: Expected v2.5.3, got ${VERSION}"
+              exit 1
+            fi
+
+  # Test install with strict checksum verification
+  test-install-checksum-strict:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "3.0.4"
+          verify_checksums: strict
+      - run:
+          name: Verify install succeeded with strict checksums
+          command: cosign version
+
+  # Integration test: sign and verify image with Cosign v3
+  integration-test-v3:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      # Generate unique image tag for this test run
+      IMAGE_TTL: 1h
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - cosign-orb/install:
+          version: "3.0.4"
+      - run:
+          name: Generate unique image reference
+          command: |
+            # Use CircleCI workflow ID for uniqueness
+            IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
+            IMAGE_REF="ttl.sh/cosign-orb-test-${IMAGE_UUID}:${IMAGE_TTL}"
+            echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
+            echo "Test image: ${IMAGE_REF}"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
+            # This image contains only a timestamp for testing purposes.
+            echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            docker build -t "${IMAGE_REF}" .
+            # Push directly to ttl.sh (anonymous push supported)
+            docker push "${IMAGE_REF}"
+            echo "Pushed test image to ${IMAGE_REF}"
+      - cosign-orb/sign_image:
+          image: ${IMAGE_REF}
+      - cosign-orb/verify_image:
+          image: ${IMAGE_REF}
+      - run:
+          name: Create test attestation predicate
+          command: |
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/attest:
+          image: ${IMAGE_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_REF}
+          predicate_type: slsaprovenance
+
+  # Integration test: sign and verify image with Cosign v2
+  integration-test-v2:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      IMAGE_TTL: 1h
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - cosign-orb/install:
+          version: "2.5.3"
+      - run:
+          name: Generate unique image reference
+          command: |
+            IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
+            # Use different suffix to avoid collision with v3 test
+            IMAGE_REF="ttl.sh/cosign-orb-test-v2-${IMAGE_UUID}:${IMAGE_TTL}"
+            echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
+            echo "Test image: ${IMAGE_REF}"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
+            echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            docker build -t "${IMAGE_REF}" .
+            # Push directly to ttl.sh (anonymous push supported)
+            docker push "${IMAGE_REF}"
+            echo "Pushed test image to ${IMAGE_REF}"
+      - cosign-orb/sign_image:
+          image: ${IMAGE_REF}
+      - cosign-orb/verify_image:
+          image: ${IMAGE_REF}
+      - run:
+          name: Create test attestation predicate
+          command: |
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/attest:
+          image: ${IMAGE_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_REF}
+          predicate_type: slsaprovenance
 
 workflows:
   test-deploy:
     jobs:
-      # Make sure to include "filters: *filters" in every test job you want to run as part of your deployment.
-      # Test your orb's commands in a custom job and test your orb's jobs directly as a part of this workflow.
-      - command-test:
+      # Install tests - no context needed
+      - test-install-default:
           filters: *filters
-      # The orb must be re-packed for publishing, and saved to the workspace.
+      - test-install-v3:
+          filters: *filters
+      - test-install-v2:
+          filters: *filters
+      - test-install-checksum-strict:
+          filters: *filters
+
+      # Integration tests - require cosign_ctx for signing keys
+      - integration-test-v3:
+          context: cosign_ctx
+          filters: *filters
+      - integration-test-v2:
+          context: cosign_ctx
+          filters: *filters
+
+      # Orb publishing
       - orb-tools/pack:
           filters: *release-filters
       - orb-tools/publish:
           orb_name: juburr/cosign-orb
           vcs_type: << pipeline.project.type >>
           pub_type: production
-          # Ensure this job requires all test jobs and the pack job.
           requires:
             - orb-tools/pack
-            - command-test
+            - test-install-default
+            - test-install-v3
+            - test-install-v2
+            - test-install-checksum-strict
+            - integration-test-v3
+            - integration-test-v2
           context: orb-publishing
           filters: *release-filters
