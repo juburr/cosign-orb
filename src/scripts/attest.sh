@@ -33,8 +33,8 @@ trap cleanup_secrets EXIT
 # Verify Cosign version is supported
 COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
-if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ]; then
-    echo "Unsupported Cosign version: ${MAJOR_VERSION}"
+if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
+    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
     cleanup_secrets
     exit 1
 fi
@@ -92,7 +92,7 @@ chmod 0400 cosign.key
 echo "Set private key permissions: 0400"
 
 # Sign the image using its digest
-echo "Signing ${IMAGE_URI_DIGEST}..."
+echo "Attesting ${IMAGE_URI_DIGEST}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     cosign attest \
         --predicate "${PREDICATE}" \
@@ -100,11 +100,19 @@ if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
         --key cosign.key \
         --no-tlog-upload \
         "${IMAGE_URI_DIGEST}"
-else
+elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
     cosign attest \
         --predicate "${PREDICATE}" \
         --type "${PREDICATE_TYPE}" \
         --key cosign.key \
         --tlog-upload=false \
+        "${IMAGE_URI_DIGEST}"
+else
+    # Cosign v3: Use --no-upload instead of deprecated --tlog-upload flag
+    cosign attest \
+        --predicate "${PREDICATE}" \
+        --type "${PREDICATE_TYPE}" \
+        --key cosign.key \
+        --no-upload \
         "${IMAGE_URI_DIGEST}"
 fi
