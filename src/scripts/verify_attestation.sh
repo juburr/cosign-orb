@@ -8,11 +8,11 @@ IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 PREDICATE_TYPE=$(circleci env subst "${PARAM_PREDICATE_TYPE}")
 COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
 
-# Verify Cosign version is supported (v2+ required for --private-infrastructure flag)
+# Verify Cosign version is supported
 COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
-if [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
-    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}. This command requires Cosign v2 or v3."
+if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
+    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
     exit 1
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
@@ -45,13 +45,22 @@ echo "Wrote public key: cosign.pub"
 chmod 0400 cosign.pub
 echo "Set public key permissions: 0400"
 
-# Verify image signature using the public key
-echo "Verifying cosign signature for ${IMAGE}..."
-cosign verify-attestation \
-    --type "${PREDICATE_TYPE}" \
-    --key cosign.pub \
-    --private-infrastructure \
-    "${IMAGE}"
+# Verify attestation using the public key
+echo "Verifying cosign attestation for ${IMAGE}..."
+if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
+    # Cosign v1: tlog verification is experimental and off by default, no special flags needed
+    cosign verify-attestation \
+        --type "${PREDICATE_TYPE}" \
+        --key cosign.pub \
+        "${IMAGE}"
+else
+    # Cosign v2 and v3: --private-infrastructure skips tlog verification
+    cosign verify-attestation \
+        --type "${PREDICATE_TYPE}" \
+        --key cosign.pub \
+        --private-infrastructure \
+        "${IMAGE}"
+fi
 
 # Cleanup
 rm cosign.pub
