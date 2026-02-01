@@ -283,6 +283,127 @@ jobs:
           image: ${IMAGE_REF}
           predicate_type: slsaprovenance
 
+  # Integration test: sign and verify blob with Cosign v3
+  integration-test-blob-v3:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "3.0.4"
+      - run:
+          name: Generate throwaway key pair
+          command: |
+            # Generate throwaway keys for testing - do not use production keys
+            export COSIGN_PASSWORD="test-password-blob-v3"
+            cosign generate-key-pair
+            # Export base64-encoded keys for orb commands
+            echo "export COSIGN_PASSWORD='test-password-blob-v3'" >> "${BASH_ENV}"
+            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
+            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
+            # Clean up key files (orb will recreate from env vars)
+            rm -f cosign.key cosign.pub
+      - run:
+          name: Create test blob file
+          command: |
+            # SECURITY: DO NOT include sensitive data in test files
+            echo "Test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+            echo "Created test blob: testblob.txt"
+      - cosign-orb/sign_blob:
+          blob: testblob.txt
+          signature_output: testblob.txt.sig
+      - run:
+          name: Verify signature file was created
+          command: |
+            if [[ ! -f testblob.txt.sig ]]; then
+              echo "ERROR: Signature file was not created"
+              exit 1
+            fi
+            echo "Signature file exists: testblob.txt.sig"
+      - cosign-orb/verify_blob:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+
+  # Integration test: sign and verify blob with Cosign v2
+  integration-test-blob-v2:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "2.5.3"
+      - run:
+          name: Generate throwaway key pair
+          command: |
+            # Generate throwaway keys for testing - do not use production keys
+            export COSIGN_PASSWORD="test-password-blob-v2"
+            cosign generate-key-pair
+            # Export base64-encoded keys for orb commands
+            echo "export COSIGN_PASSWORD='test-password-blob-v2'" >> "${BASH_ENV}"
+            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
+            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
+            # Clean up key files (orb will recreate from env vars)
+            rm -f cosign.key cosign.pub
+      - run:
+          name: Create test blob file
+          command: |
+            # SECURITY: DO NOT include sensitive data in test files
+            echo "Test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+            echo "Created test blob: testblob.txt"
+      - cosign-orb/sign_blob:
+          blob: testblob.txt
+          signature_output: testblob.txt.sig
+      - run:
+          name: Verify signature file was created
+          command: |
+            if [[ ! -f testblob.txt.sig ]]; then
+              echo "ERROR: Signature file was not created"
+              exit 1
+            fi
+            echo "Signature file exists: testblob.txt.sig"
+      - cosign-orb/verify_blob:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+
+  # Integration test: sign and verify blob with Cosign v1
+  integration-test-blob-v1:
+    executor: docker-executor
+    steps:
+      - checkout
+      - cosign-orb/install:
+          version: "1.13.6"
+      - run:
+          name: Generate v1-compatible key pair
+          command: |
+            # Cosign v1 uses different key format than v2/v3
+            # Generate keys dynamically for this test
+            export COSIGN_PASSWORD="test-password-blob-v1"
+            cosign generate-key-pair
+            # Export base64-encoded keys for orb commands
+            echo "export COSIGN_PASSWORD='test-password-blob-v1'" >> "${BASH_ENV}"
+            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
+            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
+            # Clean up key files (orb will recreate from env vars)
+            rm -f cosign.key cosign.pub
+      - run:
+          name: Create test blob file
+          command: |
+            # SECURITY: DO NOT include sensitive data in test files
+            echo "Test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+            echo "Created test blob: testblob.txt"
+      - cosign-orb/sign_blob:
+          blob: testblob.txt
+          signature_output: testblob.txt.sig
+      - run:
+          name: Verify signature file was created
+          command: |
+            if [[ ! -f testblob.txt.sig ]]; then
+              echo "ERROR: Signature file was not created"
+              exit 1
+            fi
+            echo "Signature file exists: testblob.txt.sig"
+      - cosign-orb/verify_blob:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+
 workflows:
   test-deploy:
     jobs:
@@ -306,6 +427,14 @@ workflows:
       - integration-test-v1:
           filters: *filters
 
+      # Blob integration tests - generate throwaway keys, no context needed
+      - integration-test-blob-v3:
+          filters: *filters
+      - integration-test-blob-v2:
+          filters: *filters
+      - integration-test-blob-v1:
+          filters: *filters
+
       # Orb publishing
       - orb-tools/pack:
           filters: *release-filters
@@ -323,5 +452,8 @@ workflows:
             - integration-test-v3
             - integration-test-v2
             - integration-test-v1
+            - integration-test-blob-v3
+            - integration-test-blob-v2
+            - integration-test-blob-v1
           context: orb-publishing
           filters: *release-filters
