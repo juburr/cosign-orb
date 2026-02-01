@@ -42,6 +42,259 @@ This roadmap prioritizes features based on:
 
 ---
 
+## Security Model: Understanding the Trust Boundaries
+
+A critical consideration when planning signing infrastructure is understanding where secrets live and what happens if they're compromised. This section analyzes three approaches and their security implications.
+
+### The Problem with Stored Secrets
+
+CircleCI contexts are the current mechanism for storing signing credentials. The fundamental question is: **if an attacker compromises a CircleCI context, what can they do?**
+
+### Tier 1: Base64 Private Key in Context (Current Approach)
+
+```
+CircleCI Context ──────────────────────────────► Signing Key
+         │
+         ▼
+   [COSIGN_PRIVATE_KEY]   (base64-encoded)
+   [COSIGN_PASSWORD]
+```
+
+**Security characteristics:**
+- Private key stored directly in CircleCI
+- Compromise of context = **permanent key theft**
+- Attacker can sign anything, anywhere, indefinitely
+- No audit trail of key usage
+- Must generate new keys and re-sign everything if compromised
+
+**When appropriate:** Development/testing, low-security requirements, or when simplicity outweighs security concerns.
+
+### Tier 2: Static Cloud Credentials → KMS (Intermediate)
+
+```
+CircleCI Context ──► AWS Credentials ──► KMS ──► Sign Operation
+         │                                           │
+         ▼                                           ▼
+   [AWS_ACCESS_KEY_ID]                    Key never leaves HSM
+   [AWS_SECRET_ACCESS_KEY]                CloudTrail audit log
+```
+
+**Security characteristics:**
+- Cloud credentials stored in CircleCI (still a stored secret)
+- Key material **never leaves the HSM** - attacker cannot extract it
+- Compromise allows signing **until credentials are rotated**
+- **Audit trail** via CloudTrail/Cloud Logging shows all signing operations
+- Fine-grained IAM policies can restrict operations, source IPs, time windows
+- Credential rotation locks out attacker without regenerating signing keys
+
+**Improvement over Tier 1:**
+| Factor | Base64 Key | Static Creds → KMS |
+|--------|------------|-------------------|
+| Key extraction possible | Yes | No |
+| Post-compromise recovery | Regenerate keys | Rotate credentials |
+| Audit trail | None | Full |
+| Access control granularity | None | IAM policies |
+
+**When appropriate:** Organizations wanting audit trails and KMS benefits, but not yet ready for OIDC federation. This is a **stepping stone**, not an end goal.
+
+### Tier 3: OIDC Federation → KMS or Keyless (Recommended)
+
+```
+CircleCI Job ──► OIDC Token ──► Cloud Provider ──► Temp Creds ──► Sign
+      │              │               │                  │
+      ▼              ▼               ▼                  ▼
+   No stored     JWT signed      STS/Workload       15-min TTL
+   secrets       by CircleCI     Identity           Auto-expire
+```
+
+**Security characteristics:**
+- **No secrets stored in CircleCI contexts**
+- OIDC token is job-specific, short-lived (~60 minutes)
+- Cloud provider exchanges token for temporary credentials (~15 minutes)
+- Attacker must have an **active CI job** to sign - cannot sign externally
+- IAM trust policy restricts which projects/branches can assume the role
+- Full audit trail with job-level granularity
+
+**How it works:**
+1. CircleCI job starts and receives `$CIRCLE_OIDC_TOKEN` (a signed JWT)
+2. JWT contains claims: `org_id`, `project_id`, `branch`, `user_id`
+3. Cloud provider validates JWT signature against CircleCI's OIDC endpoint
+4. If trust policy allows, provider issues temporary credentials
+5. Job uses temporary credentials to sign via KMS (or Fulcio for keyless)
+6. Credentials automatically expire
+
+### Why Does AWS Trust CircleCI's JWT?
+
+AWS doesn't inherently trust CircleCI - **you explicitly configure AWS to trust CircleCI's OIDC endpoint**. This is a critical one-time setup step.
+
+**Step 1: Register CircleCI as an Identity Provider**
+
+You create an OIDC Identity Provider in your AWS account:
+
+```bash
+aws iam create-open-id-connect-provider \
+  --url "https://oidc.circleci.com/org/YOUR_ORG_ID" \
+  --client-id-list "YOUR_ORG_ID" \
+  --thumbprint-list "..."
+```
+
+This tells AWS: "I trust JWTs signed by this issuer."
+
+**Step 2: AWS Fetches CircleCI's Public Keys**
+
+When you register the provider, AWS retrieves CircleCI's public signing keys from their OIDC discovery endpoint:
+
+```
+https://oidc.circleci.com/org/YOUR_ORG_ID/.well-known/openid-configuration
+    └── returns jwks_uri ──►
+https://oidc.circleci.com/org/YOUR_ORG_ID/.well-known/jwks.json
+    └── contains public keys for JWT verification
+```
+
+**Step 3: JWT Verification Flow**
+
+```
+┌─────────────┐                              ┌─────────────┐
+│  CircleCI   │  1. Job starts, provides     │   CI Job    │
+│   Server    │     signed JWT ────────────► │             │
+└──────┬──────┘     ($CIRCLE_OIDC_TOKEN)     └──────┬──────┘
+       │                                            │
+       │                                            │ 2. AssumeRoleWithWebIdentity
+       │                                            │    (sends JWT)
+       │                                            ▼
+       │                                     ┌─────────────┐
+       │  3. Fetch public keys (if not       │   AWS STS   │
+       │◄─── cached from registration) ──────│             │
+       │                                     └──────┬──────┘
+       │  4. Return JWKS (public keys)              │
+       │─────────────────────────────────────►      │
+                                                    │ 5. Verify:
+                                                    │    - JWT signature (using public key)
+                                                    │    - Issuer matches registered provider
+                                                    │    - Token not expired
+                                                    │    - Claims match trust policy
+                                                    ▼
+                                             ┌─────────────┐
+                                             │ Temp Creds  │
+                                             │ (15 min)    │
+                                             └─────────────┘
+```
+
+**What AWS Verifies:**
+| Check | Description |
+|-------|-------------|
+| Signature | JWT was signed by CircleCI's private key (verified via public key) |
+| Issuer (`iss`) | Matches the registered OIDC provider URL |
+| Audience (`aud`) | Matches expected value in trust policy |
+| Expiration (`exp`) | Token hasn't expired |
+| Custom claims | Your IAM conditions (project ID, branch, etc.) |
+
+**Why This Is Secure:**
+- **Only CircleCI has the private key** - Nobody else can forge valid JWTs
+- **You control the trust policy** - You decide which projects/branches can assume roles
+- **Short-lived tokens** - JWTs expire in ~60 min, credentials in ~15 min
+- **No shared secrets** - Unlike static credentials, there's nothing to steal
+
+**CircleCI OIDC Token Claims:**
+```json
+{
+  "iss": "https://oidc.circleci.com/org/<org-id>",
+  "sub": "org/<org-id>/project/<project-id>/user/<user-id>",
+  "aud": "<org-id>",
+  "oidc.circleci.com/project-id": "<project-id>",
+  "oidc.circleci.com/context-ids": ["<context-id>"]
+}
+```
+
+**AWS IAM Trust Policy Example:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::ACCOUNT:oidc-provider/oidc.circleci.com/org/ORG_ID"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "oidc.circleci.com/org/ORG_ID:aud": "ORG_ID"
+      },
+      "StringLike": {
+        "oidc.circleci.com/org/ORG_ID:sub": "org/ORG_ID/project/PROJECT_ID/*"
+      }
+    }
+  }]
+}
+```
+
+### Security Comparison Summary
+
+| Approach | Stored Secrets | Compromise Impact | Recovery |
+|----------|---------------|-------------------|----------|
+| Base64 key in context | Private key | Permanent signing capability | Regenerate all keys |
+| Static cloud creds → KMS | Cloud credentials | Sign until rotation | Rotate credentials |
+| **OIDC → KMS** | **None** | **Must run CI job** | **Nothing to rotate** |
+| **OIDC → Keyless (Fulcio)** | **None** | **Must run CI job** | **Nothing to rotate** |
+
+### CircleCI Server (On-Premises) OIDC Support
+
+OIDC is supported in **CircleCI Server 4.x** but requires additional configuration because you're running your own identity provider.
+
+**The difference from CircleCI Cloud:**
+- Cloud: CircleCI manages the signing keys; you just trust their endpoint
+- Server: **You generate and manage your own signing keys**
+
+**Setup steps:**
+
+1. **Generate a JSON Web Key (JWK) pair** - This is your Server's signing key
+   ```bash
+   # Generate JWK and save to file
+   # Private key stays in Server, public key is advertised via OIDC endpoint
+   ```
+
+2. **Configure JWK in Helm values:**
+   ```yaml
+   oidc:
+     json_web_keys: "<base64-encoded-jwk>"
+   ```
+
+3. **Register your Server as an OIDC provider in AWS:**
+   ```bash
+   aws iam create-open-id-connect-provider \
+     --url "https://your-circleci-server.example.com/org/ORG_ID" \
+     --client-id-list "ORG_ID" \
+     --thumbprint-list "..."
+   ```
+
+The OIDC issuer URL for Server installations follows the pattern:
+`https://<your-circleci-server-domain>/org/<organization-id>`
+
+**Trust model for Server:**
+```
+Your CircleCI Server ──► Signs JWTs with your private key
+         │
+         ▼
+Your OIDC endpoint ──► Advertises your public key via /.well-known/jwks.json
+         │
+         ▼
+AWS (your account) ──► Fetches public key, verifies JWTs, issues temp creds
+```
+
+**Note:** Ensure the JWK contains required fields (`alg`, `kid`) to avoid `InvalidIdentityToken` errors when assuming AWS roles.
+
+### Recommendations by Use Case
+
+| Use Case | Recommended Approach |
+|----------|---------------------|
+| Open source projects | Keyless (Fulcio) via OIDC |
+| Enterprise with cloud KMS | OIDC → Cloud KMS |
+| Air-gapped / private infrastructure | Static credentials → private KMS |
+| Development / testing | Base64 keys in context |
+| Highly regulated (audit required) | OIDC → KMS with CloudTrail |
+
+---
+
 ## Phase 1: Keyless Signing (High Priority)
 
 **Goal:** Enable OIDC-based keyless signing, the industry-standard approach for public CI/CD.
@@ -139,10 +392,47 @@ Verify keylessly-signed attestations.
 
 ## Phase 2: Cloud KMS Integration (High Priority)
 
-**Goal:** Enable enterprise users to leverage cloud-managed keys with proper access controls.
+**Goal:** Enable enterprise users to leverage cloud-managed keys with proper access controls, **preferably via OIDC federation** to eliminate stored secrets.
+
+### Authentication Methods (In Order of Preference)
+
+#### Method A: OIDC Federation (Recommended)
+No secrets stored in CircleCI. Uses `$CIRCLE_OIDC_TOKEN` to assume a cloud IAM role.
+
+```yaml
+parameters:
+  kms_key:
+    type: string
+    description: "KMS key URI (e.g., awskms://alias/cosign-key)"
+  oidc_role_arn:
+    type: string
+    description: "IAM role ARN to assume via OIDC (e.g., arn:aws:iam::123456789:role/cosign-signing)"
+  # AWS automatically uses CIRCLE_OIDC_TOKEN for AssumeRoleWithWebIdentity
+```
+
+**Prerequisites:**
+1. Configure CircleCI as an OIDC identity provider in your cloud account
+2. Create an IAM role with trust policy allowing your CircleCI org/project
+3. Grant the role permission to use the specific KMS key for signing
+
+#### Method B: Static Credentials (Fallback)
+For environments where OIDC is not available (older CircleCI Server versions, air-gapped networks with no external OIDC trust).
+
+```yaml
+parameters:
+  kms_key:
+    type: string
+    description: "KMS key URI"
+  # Uses AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY from context
+```
+
+**When to use static credentials:**
+- CircleCI Server < 4.x without OIDC support
+- Air-gapped environments where cloud KMS cannot trust external OIDC providers
+- Legacy integrations being migrated incrementally
 
 ### Enhanced `sign_image` Command
-Add support for KMS key references:
+Add support for KMS key references with OIDC-first authentication:
 
 ```yaml
 parameters:
@@ -156,6 +446,37 @@ parameters:
       - azurekms://[VAULT_NAME][VAULT_URI]/[KEY]
       - hashivault://[KEY]
       - k8s://[NAMESPACE]/[KEY]
+  oidc_role_arn:
+    type: string
+    default: ""
+    description: |
+      (Recommended) IAM role to assume via OIDC. If provided, uses
+      $CIRCLE_OIDC_TOKEN for authentication instead of static credentials.
+  aws_region:
+    type: string
+    default: "us-east-1"
+    description: "AWS region for KMS operations"
+```
+
+### Implementation: OIDC → AWS KMS Flow
+
+```bash
+#!/bin/bash
+# Assume role using CircleCI OIDC token
+if [[ -n "${OIDC_ROLE_ARN}" ]]; then
+  CREDS=$(aws sts assume-role-with-web-identity \
+    --role-arn "${OIDC_ROLE_ARN}" \
+    --role-session-name "circleci-cosign-${CIRCLE_BUILD_NUM}" \
+    --web-identity-token "${CIRCLE_OIDC_TOKEN}" \
+    --duration-seconds 900)
+
+  export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r '.Credentials.AccessKeyId')
+  export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r '.Credentials.SecretAccessKey')
+  export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r '.Credentials.SessionToken')
+fi
+
+# Sign using KMS key (credentials are temporary, auto-expire)
+cosign sign --key "${KMS_KEY}" "${IMAGE}"
 ```
 
 ### New Commands
@@ -177,13 +498,41 @@ parameters:
     type: env_var_name
     default: "COSIGN_PASSWORD"
     description: "Environment variable containing key password"
+  oidc_role_arn:
+    type: string
+    default: ""
+    description: "IAM role to assume via OIDC for KMS key creation"
 ```
+
+#### `setup_oidc_aws`
+Helper command to configure AWS credentials via OIDC (can be used before other commands).
+
+```yaml
+parameters:
+  role_arn:
+    type: string
+    description: "IAM role ARN to assume"
+  region:
+    type: string
+    default: "us-east-1"
+  session_duration:
+    type: integer
+    default: 900
+    description: "Session duration in seconds (max 3600)"
+```
+
+### Documentation Requirements
+- Step-by-step guide for setting up OIDC trust with AWS, GCP, Azure
+- IAM policy examples with least-privilege permissions
+- Troubleshooting guide for common OIDC errors
+- Migration guide from static credentials to OIDC
 
 ### Use Cases Addressed
 - Enterprise key management requirements
 - Centralized key rotation and access control
 - Compliance with security policies requiring HSM-backed keys
-- Air-gapped environments with private KMS
+- **Zero stored secrets** with OIDC federation
+- Air-gapped environments with private KMS (static credentials fallback)
 
 ---
 
@@ -481,15 +830,33 @@ To prioritize features based on real user needs:
 
 ## Security Considerations
 
+### Authentication Hierarchy
+See [Security Model: Understanding the Trust Boundaries](#security-model-understanding-the-trust-boundaries) for detailed analysis.
+
+**Recommended progression:**
+1. **Start with keyless (Fulcio)** for open source or when transparency is acceptable
+2. **Use OIDC → KMS** for enterprises needing private keys with no stored secrets
+3. **Fall back to static credentials → KMS** only when OIDC is unavailable
+4. **Avoid base64 keys in contexts** except for development/testing
+
 ### Keyless Signing Privacy
 - Signatures include identity (email/subject) in public transparency log
 - Users should understand PII implications before enabling keyless
 - Provide documentation on identity policies
+- Consider whether your organization's CI identity should be publicly visible
+
+### OIDC Security Best Practices
+- Restrict IAM trust policies to specific CircleCI projects, not entire organizations
+- Use `circleci_project_id` claim to limit which projects can sign
+- Set short session durations (15 minutes) for temporary credentials
+- Consider IP restrictions for additional defense-in-depth
+- Regularly audit CloudTrail/Cloud Logging for unexpected signing operations
 
 ### Key Management Best Practices
-- Recommend KMS over environment variable keys for production
+- **Prefer OIDC → KMS** over static credentials for production
+- If using static credentials, rotate regularly and use dedicated signing-only credentials
 - Document secure key rotation procedures
-- Warn about key format incompatibilities between versions
+- Warn about key format incompatibilities between Cosign versions (v1 vs v2+)
 
 ### Attestation Integrity
 - Validate predicate content before signing
@@ -500,22 +867,29 @@ To prioritize features based on real user needs:
 
 ## Implementation Priorities
 
-Based on industry research and user demand:
+Based on industry research, user demand, and security analysis:
 
 ### Must Have (Phase 1-2)
-1. **Keyless signing** - Eliminates key management, industry standard
-2. **KMS integration** - Enterprise requirement
-3. **Keyless verification with identity matching** - Required for admission control
+1. **Keyless signing via OIDC** - Zero key management, industry standard, no stored secrets
+2. **OIDC → KMS integration** - Enterprise requirement with no stored secrets
+3. **Keyless verification with identity matching** - Required for Kubernetes admission control
+4. **Static credentials → KMS** - Fallback for environments without OIDC support
 
 ### Should Have (Phase 3-4)
-4. **Blob signing** - Sign binaries, SBOMs, configs
-5. **Copy command** - Multi-registry workflows
-6. **SBOM workflow commands** - Growing compliance requirements
+5. **Blob signing** - Sign binaries, SBOMs, configs
+6. **Copy command** - Multi-registry workflows
+7. **SBOM workflow commands** - Growing compliance requirements
 
 ### Nice to Have (Phase 5-6)
-7. **Pre-built jobs** - Developer convenience
-8. **Policy verification** - Advanced use cases
-9. **Multi-platform support** - Niche requirement
+8. **Pre-built jobs** - Developer convenience
+9. **Policy verification** - Advanced use cases
+10. **Multi-platform support** - Niche requirement
+
+### Security-First Approach
+The implementation order prioritizes eliminating stored secrets:
+- Phase 1 (keyless) and Phase 2 (OIDC → KMS) both achieve **zero stored secrets**
+- Static credential support is included for backward compatibility, not as a recommendation
+- Documentation should steer users toward OIDC-based approaches
 
 ---
 
