@@ -11,6 +11,7 @@ set +o history
 COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
 IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 PASSWORD=${!PARAM_PASSWORD}
+ANNOTATIONS=$(circleci env subst "${PARAM_ANNOTATIONS}")
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
@@ -105,17 +106,38 @@ echo "Wrote private key: cosign.key"
 chmod 0400 cosign.key
 echo "Set private key permissions: 0400"
 
+# Build annotation flags if annotations are provided
+ANNOTATION_FLAGS=()
+if [[ -n "${ANNOTATIONS}" ]]; then
+    echo "Processing annotations..."
+    IFS=',' read -ra ANNOTATION_PAIRS <<< "${ANNOTATIONS}"
+    for pair in "${ANNOTATION_PAIRS[@]}"; do
+        # Trim whitespace
+        pair=$(echo "${pair}" | xargs)
+        if [[ -n "${pair}" ]]; then
+            # Validate that the pair contains an equals sign
+            if [[ "${pair}" != *"="* ]]; then
+                echo "ERROR: Invalid annotation format '${pair}'. Expected key=value."
+                cleanup_secrets
+                exit 1
+            fi
+            echo "  Adding annotation: ${pair}"
+            ANNOTATION_FLAGS+=("-a" "${pair}")
+        fi
+    done
+fi
+
 # Sign the image using its digest
 echo "Signing ${IMAGE_URI_DIGEST}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign sign --key cosign.key --no-tlog-upload "${IMAGE_URI_DIGEST}"
+    cosign sign --key cosign.key --no-tlog-upload "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
 elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
-    cosign sign --key cosign.key --tlog-upload=false "${IMAGE_URI_DIGEST}"
+    cosign sign --key cosign.key --tlog-upload=false "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
 else
     # Cosign v3: Create an empty signing config for private infrastructure (no Rekor, Fulcio, TSA)
     # This is the non-deprecated approach, replacing --tlog-upload=false
     SIGNING_CONFIG=$(mktemp)
     printf '{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}\n' > "${SIGNING_CONFIG}"
-    cosign sign --key cosign.key --signing-config="${SIGNING_CONFIG}" "${IMAGE_URI_DIGEST}"
+    cosign sign --key cosign.key --signing-config="${SIGNING_CONFIG}" "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
     rm -f "${SIGNING_CONFIG}"
 fi
