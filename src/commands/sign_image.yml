@@ -1,26 +1,51 @@
-description: Signs a container image using Cosign.
+description: Signs a container image using Cosign. Supports private key signing and keyless signing via OIDC.
 parameters:
   image:
     type: string
     description: Container image to be signed. Include the full path with the tag at the end.
+  keyless:
+    type: boolean
+    description: |
+      Use keyless signing via CircleCI OIDC. When enabled, signs using Fulcio certificates
+      and records signatures in the Rekor transparency log. No private key required.
+      Requires CIRCLE_OIDC_TOKEN to be available (CircleCI Cloud or Server 4.x+).
+    default: false
   private_key:
     type: env_var_name
-    description: Base-64 encoded private key.
+    description: Base-64 encoded private key. Ignored when keyless is true.
     default: COSIGN_PRIVATE_KEY
   password:
     type: env_var_name
-    description: Password to use the private key.
+    description: Password to use the private key. Ignored when keyless is true.
     default: COSIGN_PASSWORD
   annotations:
     type: string
     description: Comma-separated list of key=value annotations to add to the signature (e.g., "key1=value1,key2=value2").
+    default: ""
+  fulcio_url:
+    type: string
+    description: Fulcio CA URL for keyless signing.
+    default: "https://fulcio.sigstore.dev"
+  rekor_url:
+    type: string
+    description: Rekor transparency log URL for keyless signing.
+    default: "https://rekor.sigstore.dev"
+  oidc_issuer:
+    type: string
+    description: |
+      OIDC issuer URL (for private Fulcio instances only).
+      When using the public Sigstore infrastructure, this is automatically set to CircleCI's issuer.
     default: ""
 steps:
   - run:
       name: Sign image
       environment:
         PARAM_IMAGE: << parameters.image >>
+        PARAM_KEYLESS: << parameters.keyless >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>
         PARAM_PASSWORD: << parameters.password >>
         PARAM_ANNOTATIONS: << parameters.annotations >>
+        PARAM_FULCIO_URL: << parameters.fulcio_url >>
+        PARAM_REKOR_URL: << parameters.rekor_url >>
+        PARAM_OIDC_ISSUER: << parameters.oidc_issuer >>
       command: << include(scripts/sign_image.sh) >>
