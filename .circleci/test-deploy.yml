@@ -119,18 +119,8 @@ jobs:
           docker_layer_caching: true
       - cosign-orb/install:
           version: "3.0.4"
-      - run:
-          name: Generate throwaway key pair
-          command: |
-            # Generate throwaway keys for testing - do not use production keys
-            export COSIGN_PASSWORD="test-password-v3"
-            cosign generate-key-pair
-            # Export base64-encoded keys for orb commands
-            echo "export COSIGN_PASSWORD='test-password-v3'" >> "${BASH_ENV}"
-            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
-            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
-            # Clean up key files (orb will recreate from env vars)
-            rm -f cosign.key cosign.pub
+      - cosign-orb/generate_key_pair:
+          password: "test-password-v3"
       - run:
           name: Generate unique image reference
           command: |
@@ -187,18 +177,8 @@ jobs:
           docker_layer_caching: true
       - cosign-orb/install:
           version: "2.5.3"
-      - run:
-          name: Generate throwaway key pair
-          command: |
-            # Generate throwaway keys for testing - do not use production keys
-            export COSIGN_PASSWORD="test-password-v2"
-            cosign generate-key-pair
-            # Export base64-encoded keys for orb commands
-            echo "export COSIGN_PASSWORD='test-password-v2'" >> "${BASH_ENV}"
-            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
-            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
-            # Clean up key files (orb will recreate from env vars)
-            rm -f cosign.key cosign.pub
+      - cosign-orb/generate_key_pair:
+          password: "test-password-v2"
       - run:
           name: Generate unique image reference
           command: |
@@ -256,19 +236,8 @@ jobs:
           docker_layer_caching: true
       - cosign-orb/install:
           version: "1.13.6"
-      - run:
-          name: Generate v1-compatible key pair
-          command: |
-            # Cosign v1 uses different key format than v2/v3
-            # Generate keys dynamically for this test
-            export COSIGN_PASSWORD="test-password-v1"
-            cosign generate-key-pair
-            # Export base64-encoded keys for orb commands
-            echo "export COSIGN_PASSWORD='test-password-v1'" >> "${BASH_ENV}"
-            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
-            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
-            # Clean up key files (orb will recreate from env vars)
-            rm -f cosign.key cosign.pub
+      - cosign-orb/generate_key_pair:
+          password: "test-password-v1"
       - run:
           name: Generate unique image reference
           command: |
@@ -321,18 +290,8 @@ jobs:
       - checkout
       - cosign-orb/install:
           version: "3.0.4"
-      - run:
-          name: Generate throwaway key pair
-          command: |
-            # Generate throwaway keys for testing - do not use production keys
-            export COSIGN_PASSWORD="test-password-blob-v3"
-            cosign generate-key-pair
-            # Export base64-encoded keys for orb commands
-            echo "export COSIGN_PASSWORD='test-password-blob-v3'" >> "${BASH_ENV}"
-            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
-            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
-            # Clean up key files (orb will recreate from env vars)
-            rm -f cosign.key cosign.pub
+      - cosign-orb/generate_key_pair:
+          password: "test-password-blob-v3"
       - run:
           name: Create test blob file
           command: |
@@ -361,18 +320,8 @@ jobs:
       - checkout
       - cosign-orb/install:
           version: "2.5.3"
-      - run:
-          name: Generate throwaway key pair
-          command: |
-            # Generate throwaway keys for testing - do not use production keys
-            export COSIGN_PASSWORD="test-password-blob-v2"
-            cosign generate-key-pair
-            # Export base64-encoded keys for orb commands
-            echo "export COSIGN_PASSWORD='test-password-blob-v2'" >> "${BASH_ENV}"
-            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
-            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
-            # Clean up key files (orb will recreate from env vars)
-            rm -f cosign.key cosign.pub
+      - cosign-orb/generate_key_pair:
+          password: "test-password-blob-v2"
       - run:
           name: Create test blob file
           command: |
@@ -401,19 +350,8 @@ jobs:
       - checkout
       - cosign-orb/install:
           version: "1.13.6"
-      - run:
-          name: Generate v1-compatible key pair
-          command: |
-            # Cosign v1 uses different key format than v2/v3
-            # Generate keys dynamically for this test
-            export COSIGN_PASSWORD="test-password-blob-v1"
-            cosign generate-key-pair
-            # Export base64-encoded keys for orb commands
-            echo "export COSIGN_PASSWORD='test-password-blob-v1'" >> "${BASH_ENV}"
-            echo "export COSIGN_PRIVATE_KEY='$(base64 -w0 cosign.key)'" >> "${BASH_ENV}"
-            echo "export COSIGN_PUBLIC_KEY='$(base64 -w0 cosign.pub)'" >> "${BASH_ENV}"
-            # Clean up key files (orb will recreate from env vars)
-            rm -f cosign.key cosign.pub
+      - cosign-orb/generate_key_pair:
+          password: "test-password-blob-v1"
       - run:
           name: Create test blob file
           command: |

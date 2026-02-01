@@ -61,6 +61,7 @@ Container image signing is a critical component of software supply chain securit
 | Command | Description |
 |---------|-------------|
 | `install` | Download and install Cosign with checksum verification |
+| `generate_key_pair` | Generate a Cosign key pair (for development/testing) |
 | `sign_image` | Sign a container image using a private key |
 | `verify_image` | Verify a container image signature |
 | `sign_blob` | Sign an arbitrary file (blob) using a private key |
@@ -92,6 +93,20 @@ jobs:
       - run:
           name: Use Cosign
           command: cosign version
+```
+
+### Generate Key Pair (Development/Testing)
+
+Generate a throwaway key pair for testing. For production, use a key management system.
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/generate_key_pair:
+      password: "my-test-password"
+  # Keys are now available as COSIGN_PRIVATE_KEY, COSIGN_PUBLIC_KEY, COSIGN_PASSWORD
+  - cosign/sign_image:
+      image: "myregistry.com/myimage:latest"
 ```
 
 ### Sign a Container Image
@@ -182,6 +197,15 @@ steps:
 | `caching` | boolean | `true` | Cache the Cosign binary between runs |
 | `install_path` | string | `/home/circleci/bin` | Installation directory |
 | `verify_checksums` | enum | `known_versions` | Checksum verification mode: `strict`, `known_versions`, or `false` |
+
+### Generate Key Pair Command Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `password` | string | `""` | Password to encrypt the private key (random if empty) |
+| `private_key_var` | string | `COSIGN_PRIVATE_KEY` | Environment variable for base64-encoded private key |
+| `public_key_var` | string | `COSIGN_PUBLIC_KEY` | Environment variable for base64-encoded public key |
+| `password_var` | string | `COSIGN_PASSWORD` | Environment variable for the password |
 
 ### Sign/Verify Image Command Parameters
 
