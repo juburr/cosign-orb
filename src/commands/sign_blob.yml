@@ -1,0 +1,26 @@
+description: Signs a blob (arbitrary file) using Cosign.
+parameters:
+  blob:
+    type: string
+    description: Path to the file to sign.
+  signature_output:
+    type: string
+    description: Path to write the signature. If empty, signature goes to stdout.
+    default: ""
+  private_key:
+    type: env_var_name
+    description: Base-64 encoded private key.
+    default: COSIGN_PRIVATE_KEY
+  password:
+    type: env_var_name
+    description: Password to use the private key.
+    default: COSIGN_PASSWORD
+steps:
+  - run:
+      name: Sign blob
+      environment:
+        PARAM_BLOB: << parameters.blob >>
+        PARAM_SIGNATURE_OUTPUT: << parameters.signature_output >>
+        PARAM_PRIVATE_KEY: << parameters.private_key >>
+        PARAM_PASSWORD: << parameters.password >>
+      command: << include(scripts/sign_blob.sh) >>

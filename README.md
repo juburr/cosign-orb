@@ -63,6 +63,8 @@ Container image signing is a critical component of software supply chain securit
 | `install` | Download and install Cosign with checksum verification |
 | `sign_image` | Sign a container image using a private key |
 | `verify_image` | Verify a container image signature |
+| `sign_blob` | Sign an arbitrary file (blob) using a private key |
+| `verify_blob` | Verify a blob signature |
 | `attest` | Attach an attestation (SBOM, provenance, etc.) to an image |
 | `verify_attestation` | Verify an attestation attached to an image |
 
@@ -129,6 +131,21 @@ steps:
       # Requires COSIGN_PUBLIC_KEY in your context
 ```
 
+### Sign and Verify a Blob (Arbitrary File)
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_blob:
+      blob: "./artifact.tar.gz"
+      signature_output: "./artifact.tar.gz.sig"
+      # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
+  - cosign/verify_blob:
+      blob: "./artifact.tar.gz"
+      signature: "./artifact.tar.gz.sig"
+      # Requires COSIGN_PUBLIC_KEY in your context
+```
+
 ### Attach and Verify Attestations
 
 ```yaml
@@ -154,11 +171,22 @@ steps:
 | `install_path` | string | `/home/circleci/bin` | Installation directory |
 | `verify_checksums` | enum | `known_versions` | Checksum verification mode: `strict`, `known_versions`, or `false` |
 
-### Sign/Verify Command Parameters
+### Sign/Verify Image Command Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `image` | string | *required* | Full image reference (e.g., `registry.com/image:tag`) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password |
+
+### Sign/Verify Blob Command Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `blob` | string | *required* | Path to the file to sign or verify |
+| `signature` | string | *required* (verify only) | Path to the signature file |
+| `signature_output` | string | `""` (stdout) | Path to write the signature (sign only) |
 | `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key |
 | `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key |
 | `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password |
@@ -209,7 +237,6 @@ We're actively developing new features. See our [roadmap](docs/ROADMAP.md) for p
 
 - Keyless signing via CircleCI OIDC
 - Cloud KMS integration (AWS KMS, GCP KMS, Azure Key Vault)
-- Blob signing and verification
 - Pre-built jobs for common workflows
 
 ## 🤝 Contributing

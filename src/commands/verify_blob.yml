@@ -1,0 +1,20 @@
+description: Verifies a blob signature using Cosign.
+parameters:
+  blob:
+    type: string
+    description: Path to the file to verify.
+  signature:
+    type: string
+    description: Path to the signature file.
+  public_key:
+    type: env_var_name
+    description: Base-64 encoded public key.
+    default: COSIGN_PUBLIC_KEY
+steps:
+  - run:
+      name: Verify blob signature
+      environment:
+        PARAM_BLOB: << parameters.blob >>
+        PARAM_SIGNATURE: << parameters.signature >>
+        PARAM_PUBLIC_KEY: << parameters.public_key >>
+      command: << include(scripts/verify_blob.sh) >>
