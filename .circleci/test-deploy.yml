@@ -151,8 +151,18 @@ jobs:
             echo "Pushed test image to ${IMAGE_REF}"
       - cosign-orb/sign_image:
           image: ${IMAGE_REF}
+          annotations: "build.source=circleci,build.version=v3"
       - cosign-orb/verify_image:
           image: ${IMAGE_REF}
+      - run:
+          name: Verify annotations are present in signature
+          command: |
+            # Verify signature with annotation check - fails if annotation doesn't match
+            # Check both annotations to verify comma-separated parsing works
+            printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign-verify.pub
+            cosign verify --key cosign-verify.pub --private-infrastructure -a build.source=circleci -a build.version=v3 "${IMAGE_REF}"
+            rm -f cosign-verify.pub
+            echo "Annotations verified successfully"
       - run:
           name: Create test attestation predicate
           command: |
@@ -209,8 +219,18 @@ jobs:
             echo "Pushed test image to ${IMAGE_REF}"
       - cosign-orb/sign_image:
           image: ${IMAGE_REF}
+          annotations: "build.source=circleci,build.version=v2"
       - cosign-orb/verify_image:
           image: ${IMAGE_REF}
+      - run:
+          name: Verify annotations are present in signature
+          command: |
+            # Verify signature with annotation check - fails if annotation doesn't match
+            # Check both annotations to verify comma-separated parsing works
+            printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign-verify.pub
+            cosign verify --key cosign-verify.pub --private-infrastructure -a build.source=circleci -a build.version=v2 "${IMAGE_REF}"
+            rm -f cosign-verify.pub
+            echo "Annotations verified successfully"
       - run:
           name: Create test attestation predicate
           command: |
@@ -269,8 +289,19 @@ jobs:
             echo "Pushed test image to ${IMAGE_REF}"
       - cosign-orb/sign_image:
           image: ${IMAGE_REF}
+          annotations: "build.source=circleci,build.version=v1"
       - cosign-orb/verify_image:
           image: ${IMAGE_REF}
+      - run:
+          name: Verify annotations are present in signature
+          command: |
+            # Verify signature with annotation check - fails if annotation doesn't match
+            # Check both annotations to verify comma-separated parsing works
+            # Note: v1 doesn't use --private-infrastructure flag
+            printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign-verify.pub
+            cosign verify --key cosign-verify.pub -a build.source=circleci -a build.version=v1 "${IMAGE_REF}"
+            rm -f cosign-verify.pub
+            echo "Annotations verified successfully"
       - run:
           name: Create test attestation predicate
           command: |

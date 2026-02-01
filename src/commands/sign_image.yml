@@ -11,6 +11,10 @@ parameters:
     type: env_var_name
     description: Password to use the private key.
     default: COSIGN_PASSWORD
+  annotations:
+    type: string
+    description: Comma-separated list of key=value annotations to add to the signature (e.g., "key1=value1,key2=value2").
+    default: ""
 steps:
   - run:
       name: Sign image
@@ -18,4 +22,5 @@ steps:
         PARAM_IMAGE: << parameters.image >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>
         PARAM_PASSWORD: << parameters.password >>
+        PARAM_ANNOTATIONS: << parameters.annotations >>
       command: << include(scripts/sign_image.sh) >>

@@ -121,6 +121,18 @@ jobs:
           # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
 ```
 
+### Sign with Annotations
+
+Add metadata to your signatures with annotations:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_image:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      annotations: "build.commit=${CIRCLE_SHA1},build.pipeline=${CIRCLE_PIPELINE_NUMBER}"
+```
+
 ### Verify an Image Signature
 
 ```yaml
@@ -179,6 +191,7 @@ steps:
 | `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key |
 | `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key |
 | `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password |
+| `annotations` | string | `""` | Comma-separated key=value pairs to add to signature (sign only, e.g., `"env=prod,team=platform"`) |
 
 ### Sign/Verify Blob Command Parameters
 
