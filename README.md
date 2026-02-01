@@ -1,5 +1,5 @@
 <div align="center">
-  <img align="center" width="240" src="assets/logos/cosign-orb.png?v=2" alt="Cosign Orb">
+  <img align="center" width="256" src="assets/logos/cosign-orb.png?v=3" alt="Cosign Orb">
   <h1>CircleCI Cosign Orb</h1>
   <i>Secure container image signing and verification for CircleCI pipelines.</i><br /><br />
 </div>
@@ -27,6 +27,7 @@ Container image signing is a critical component of software supply chain securit
 
 ### 📜 Attestation Support
 - **Attach attestations** to container images (SBOMs, vulnerability scans, SLSA provenance)
+- **Keyless attestations** via CircleCI OIDC - no key management required
 - **Verify attestations** with support for multiple predicate types
 - **Standards compliant** - Supports SPDX, CycloneDX, and custom predicate formats
 
@@ -68,8 +69,8 @@ Container image signing is a critical component of software supply chain securit
 | `verify_image` | Verify a container image signature |
 | `sign_blob` | Sign an arbitrary file (blob) using a private key |
 | `verify_blob` | Verify a blob signature |
-| `attest` | Attach an attestation (SBOM, provenance, etc.) to an image |
-| `verify_attestation` | Verify an attestation attached to an image |
+| `attest` | Attach an attestation (SBOM, provenance, etc.) to an image (supports private key or keyless modes) |
+| `verify_attestation` | Verify an attestation attached to an image (supports public key or keyless modes) |
 
 ## 🚀 Quick Start
 
@@ -243,6 +244,8 @@ steps:
 
 ### Attach and Verify Attestations
 
+Attach attestations (SBOMs, provenance, vulnerability reports) using a private key:
+
 ```yaml
 steps:
   - cosign/install
@@ -250,9 +253,44 @@ steps:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       predicate: "./sbom.spdx.json"
       predicate_type: "spdxjson"
+      # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
   - cosign/verify_attestation:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       predicate_type: "spdxjson"
+      # Requires COSIGN_PUBLIC_KEY in your context
+```
+
+### Keyless Attestations (Recommended)
+
+Attach attestations without managing keys using CircleCI's OIDC identity:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/attest:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate: "./sbom.spdx.json"
+      predicate_type: "spdxjson"
+      keyless: true
+      # No keys required! Uses CircleCI OIDC token automatically
+  - cosign/verify_attestation:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate_type: "spdxjson"
+      keyless: true
+      # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
+```
+
+For cross-project verification of keyless attestations, specify the signing project's IDs:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_attestation:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate_type: "spdxjson"
+      keyless: true
+      certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
+      certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
 ```
 
 ## ⚙️ Configuration
@@ -311,13 +349,32 @@ steps:
 | `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key |
 | `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password |
 
-### Attestation Command Parameters
+### Attest Command Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `image` | string | *required* | Full image reference |
 | `predicate` | string | *required* | Path to predicate file |
 | `predicate_type` | string | *required* | Attestation type (e.g., `spdxjson`, `cyclonedx`, `slsaprovenance`) |
+| `keyless` | boolean | `false` | Use keyless attestation via CircleCI OIDC (no keys required) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
+| `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
+| `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
+| `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
+
+### Verify Attestation Command Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `image` | string | *required* | Full image reference |
+| `predicate_type` | string | *required* | Attestation type to verify (e.g., `spdxjson`, `cyclonedx`, `slsaprovenance`) |
+| `keyless` | boolean | `false` | Use keyless verification via certificate identity matching |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key (ignored if keyless) |
+| `certificate_identity` | string | *auto-detected* | Expected identity in Fulcio certificate (keyless only). Auto-detected from `CIRCLE_PROJECT_ID` if not provided. |
+| `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
+| `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
+| `certificate_oidc_issuer_regexp` | string | `""` | Regex pattern for OIDC issuer (keyless only) |
 
 ## 🔑 Key Management
 
@@ -364,7 +421,6 @@ Keys generated with v2/v3 cannot be used with v1. If you need v1 compatibility, 
 We're actively developing new features. See our [roadmap](docs/ROADMAP.md) for planned enhancements including:
 
 - Cloud KMS integration (AWS KMS, GCP KMS, Azure Key Vault)
-- Keyless attestations
 - Pre-built jobs for common workflows
 
 ## 🤝 Contributing

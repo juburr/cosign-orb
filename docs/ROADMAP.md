@@ -20,22 +20,26 @@ This roadmap prioritizes features based on:
 | Command | Description | Signing Method |
 |---------|-------------|----------------|
 | `install` | Download and install Cosign with SHA-512 verification | N/A |
-| `sign_image` | Sign container images | Private key (base64) |
-| `verify_image` | Verify image signatures | Public key (base64) |
-| `attest` | Attach attestations (SBOM, SLSA, etc.) | Private key (base64) |
-| `verify_attestation` | Verify attestations on images | Public key (base64) |
+| `check_oidc` | Verify CircleCI OIDC token availability | N/A |
+| `generate_key_pair` | Generate a Cosign key pair for testing | N/A |
+| `sign_image` | Sign container images | Private key or keyless (OIDC) |
+| `verify_image` | Verify image signatures | Public key or keyless |
+| `sign_blob` | Sign arbitrary files | Private key (base64) |
+| `verify_blob` | Verify blob signatures | Public key (base64) |
+| `attest` | Attach attestations (SBOM, SLSA, etc.) | Private key or keyless (OIDC) |
+| `verify_attestation` | Verify attestations on images | Public key or keyless |
 
 ### Current Strengths
 - Multi-version support (Cosign v1, v2, v3)
+- **Keyless signing and attestations** via CircleCI OIDC
+- **Blob signing** for arbitrary files
+- **Annotations support** for adding metadata to signatures
 - Strong security practices (checksum verification, secure key cleanup, file permissions)
 - Private infrastructure mode (no external dependencies)
 - Comprehensive CI testing
 
 ### Current Limitations
-- **No keyless signing** - Requires manual key management
 - **No KMS integration** - Can't use cloud-managed keys
-- **No blob signing** - Only container images supported
-- **No annotations** - Can't add metadata to signatures
 - **No multi-arch support** - No recursive signing for manifests
 - **Only Linux x86_64** - No macOS or ARM executors
 - **No jobs** - Only commands, users must compose their own workflows
@@ -295,7 +299,9 @@ AWS (your account) ──► Fetches public key, verifies JWTs, issues temp cred
 
 ---
 
-## Phase 1: Keyless Signing (High Priority)
+## Phase 1: Keyless Signing ✅ IMPLEMENTED
+
+**Status:** Implemented in current version.
 
 **Goal:** Enable OIDC-based keyless signing, the industry-standard approach for public CI/CD.
 
@@ -536,7 +542,9 @@ parameters:
 
 ---
 
-## Phase 3: Blob Signing (Medium Priority)
+## Phase 3: Blob Signing ✅ PARTIALLY IMPLEMENTED
+
+**Status:** `sign_blob` and `verify_blob` implemented. `attest_blob` and `verify_blob_attestation` pending.
 
 **Goal:** Enable signing of arbitrary files (binaries, SBOMs, configs, etc.).
 
@@ -786,14 +794,14 @@ parameters:
 
 ## Release Timeline (Suggested)
 
-| Phase | Features | Target Version |
-|-------|----------|----------------|
-| 1 | Keyless signing/verification | v2.0.0 |
-| 2 | KMS integration, generate-key-pair | v2.1.0 |
-| 3 | Blob signing/verification | v2.2.0 |
-| 4 | Supply chain workflows (copy, tree, attach_sbom) | v2.3.0 |
-| 5 | Ready-to-use jobs | v2.4.0 |
-| 6 | Advanced features | v3.0.0+ |
+| Phase | Features | Status |
+|-------|----------|--------|
+| 1 | Keyless signing/verification/attestation | ✅ Implemented |
+| 2 | KMS integration | Pending |
+| 3 | Blob signing/verification (partial: attest-blob pending) | ✅ Mostly implemented |
+| 4 | Supply chain workflows (copy, tree, attach_sbom) | Pending |
+| 5 | Ready-to-use jobs | Pending |
+| 6 | Advanced features | Pending |
 
 ---
 
@@ -807,7 +815,7 @@ parameters:
 | GitLab CI (native) | Yes | Yes | Yes | No |
 | cpanato/cosign-orb (CircleCI) | Yes | No | No | No |
 | twdps/cosign (CircleCI) | No | No | No | Yes |
-| **This orb (current)** | No | No | No | No |
+| **This orb (current)** | Yes | No | Yes | No |
 | **This orb (planned)** | Yes | Yes | Yes | Yes |
 
 ### Differentiation Strategy
@@ -895,17 +903,17 @@ The implementation order prioritizes eliminating stored secrets:
 
 ## Appendix: Cosign Command Coverage
 
-| Cosign Command | Current Orb | Roadmap Phase |
-|----------------|-------------|---------------|
-| sign | sign_image | Current |
-| verify | verify_image | Current |
-| attest | attest | Current |
-| verify-attestation | verify_attestation | Current |
-| generate-key-pair | - | Phase 2 |
-| sign-blob | - | Phase 3 |
-| verify-blob | - | Phase 3 |
-| attest-blob | - | Phase 3 |
-| verify-blob-attestation | - | Phase 3 |
+| Cosign Command | Current Orb | Status |
+|----------------|-------------|--------|
+| sign | sign_image | ✅ Implemented (private key + keyless) |
+| verify | verify_image | ✅ Implemented (public key + keyless) |
+| attest | attest | ✅ Implemented (private key + keyless) |
+| verify-attestation | verify_attestation | ✅ Implemented (public key + keyless) |
+| generate-key-pair | generate_key_pair | ✅ Implemented |
+| sign-blob | sign_blob | ✅ Implemented |
+| verify-blob | verify_blob | ✅ Implemented |
+| attest-blob | - | Phase 3 (pending) |
+| verify-blob-attestation | - | Phase 3 (pending) |
 | attach sbom | - | Phase 4 |
 | download sbom | - | Phase 4 |
 | copy | - | Phase 4 |

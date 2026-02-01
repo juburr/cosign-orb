@@ -1,4 +1,4 @@
-description: Attaches an attestation to a container image using Cosign.
+description: Attaches an attestation to a container image using Cosign. Supports private key and keyless attestation.
 parameters:
   image:
     type: string
@@ -6,17 +6,38 @@ parameters:
   predicate:
     type: string
     description: Path to the predicate file.
-  private_key:
-    type: env_var_name
-    description: Environment variable that holds the base-64 encoded private key.
-    default: COSIGN_PRIVATE_KEY
-  password:
-    type: env_var_name
-    description: Environment variable that holds the password for the private key.
-    default: COSIGN_PASSWORD
   predicate_type:
     type: string
     description: The predicate type. Common types are spdx, spdxjson, cyclonedx, and vuln.
+  keyless:
+    type: boolean
+    description: |
+      Use keyless attestation via CircleCI OIDC. When enabled, attests using Fulcio certificates
+      and records the attestation in the Rekor transparency log. No private key required.
+      Requires CIRCLE_OIDC_TOKEN to be available (CircleCI Cloud or Server 4.x+).
+    default: false
+  private_key:
+    type: env_var_name
+    description: Environment variable that holds the base-64 encoded private key. Ignored when keyless is true.
+    default: COSIGN_PRIVATE_KEY
+  password:
+    type: env_var_name
+    description: Environment variable that holds the password for the private key. Ignored when keyless is true.
+    default: COSIGN_PASSWORD
+  fulcio_url:
+    type: string
+    description: Fulcio CA URL for keyless attestation.
+    default: "https://fulcio.sigstore.dev"
+  rekor_url:
+    type: string
+    description: Rekor transparency log URL for keyless attestation.
+    default: "https://rekor.sigstore.dev"
+  oidc_issuer:
+    type: string
+    description: |
+      OIDC issuer URL (for private Fulcio instances only).
+      When using the public Sigstore infrastructure, this is automatically set to CircleCI's issuer.
+    default: ""
 steps:
   - run:
       name: Attach Attestation
@@ -24,6 +45,10 @@ steps:
         PARAM_IMAGE: << parameters.image >>
         PARAM_PREDICATE: << parameters.predicate >>
         PARAM_PREDICATE_TYPE: << parameters.predicate_type >>
+        PARAM_KEYLESS: << parameters.keyless >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>
         PARAM_PASSWORD: << parameters.password >>
+        PARAM_FULCIO_URL: << parameters.fulcio_url >>
+        PARAM_REKOR_URL: << parameters.rekor_url >>
+        PARAM_OIDC_ISSUER: << parameters.oidc_issuer >>
       command: << include(scripts/attest.sh) >>
