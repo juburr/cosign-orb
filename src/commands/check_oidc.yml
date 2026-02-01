@@ -1,0 +1,8 @@
+description: |
+  Verifies that CircleCI OIDC token is available and displays key claims.
+  Use this command to confirm OIDC is properly configured before using keyless signing commands.
+
+steps:
+  - run:
+      name: Check CircleCI OIDC Token
+      command: << include(scripts/check_oidc.sh) >>

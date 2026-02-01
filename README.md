@@ -21,6 +21,7 @@ Container image signing is a critical component of software supply chain securit
 
 ### 🔏 Container Image Signing & Verification
 - **Sign container images** with private keys stored securely in CircleCI contexts
+- **Keyless signing** via CircleCI OIDC - no key management required
 - **Verify image signatures** before deployment to ensure authenticity
 - **Private infrastructure support** - Sign without uploading to public transparency logs
 
@@ -61,8 +62,9 @@ Container image signing is a critical component of software supply chain securit
 | Command | Description |
 |---------|-------------|
 | `install` | Download and install Cosign with checksum verification |
+| `check_oidc` | Verify CircleCI OIDC token availability for keyless signing |
 | `generate_key_pair` | Generate a Cosign key pair (for development/testing) |
-| `sign_image` | Sign a container image using a private key |
+| `sign_image` | Sign a container image (supports private key or keyless modes) |
 | `verify_image` | Verify a container image signature |
 | `sign_blob` | Sign an arbitrary file (blob) using a private key |
 | `verify_blob` | Verify a blob signature |
@@ -111,6 +113,8 @@ steps:
 
 ### Sign a Container Image
 
+Sign images using a private key stored in a CircleCI context. See the [Private Key Signing Guide](docs/private-key-signing.md) for key generation and setup instructions.
+
 ```yaml
 version: 2.1
 
@@ -136,6 +140,42 @@ jobs:
           # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
 ```
 
+### Keyless Signing (Recommended)
+
+Sign container images without managing keys using CircleCI's OIDC identity. Signatures are recorded in the public Sigstore transparency log. See the [Keyless Signing Guide](docs/keyless-signing.md) for complete documentation.
+
+```yaml
+version: 2.1
+
+orbs:
+  cosign: juburr/cosign-orb@latest
+
+jobs:
+  build-and-sign-keyless:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build and Push Image
+          command: |
+            docker build -t myregistry.com/myimage:${CIRCLE_SHA1} .
+            docker push myregistry.com/myimage:${CIRCLE_SHA1}
+      - cosign/install
+      - cosign/sign_image:
+          image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+          keyless: true
+          # No keys required! Uses CircleCI OIDC token automatically
+```
+
+**Prerequisites for keyless signing:**
+- CircleCI Cloud or CircleCI Server 4.x+
+- OIDC enabled for your organization
+- Use `cosign/check_oidc` to verify OIDC is available
+
+**Privacy note:** Keyless signatures are recorded in the public Rekor transparency log, which includes your CircleCI organization and project IDs.
+
 ### Sign with Annotations
 
 Add metadata to your signatures with annotations:
@@ -157,6 +197,34 @@ steps:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       # Requires COSIGN_PUBLIC_KEY in your context
 ```
+
+### Verify a Keyless Signature
+
+Verify images signed with keyless signing. When verifying images signed by the **same project**, parameters are auto-detected:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_image:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      keyless: true
+      # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
+      # Only works for same-project verification!
+```
+
+For **cross-project** or **cross-organization** verification, specify the signing project's IDs:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_image:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      keyless: true
+      certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
+      certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
+```
+
+See the [Keyless Signing Guide](docs/keyless-signing.md) for details on certificate identity formats and verification options.
 
 ### Sign and Verify a Blob (Arbitrary File)
 
@@ -207,15 +275,30 @@ steps:
 | `public_key_var` | string | `COSIGN_PUBLIC_KEY` | Environment variable for base64-encoded public key |
 | `password_var` | string | `COSIGN_PASSWORD` | Environment variable for the password |
 
-### Sign/Verify Image Command Parameters
+### Sign Image Command Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `image` | string | *required* | Full image reference (e.g., `registry.com/image:tag`) |
-| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key |
-| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key |
-| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password |
-| `annotations` | string | `""` | Comma-separated key=value pairs to add to signature (sign only, e.g., `"env=prod,team=platform"`) |
+| `keyless` | boolean | `false` | Use keyless signing via CircleCI OIDC (no keys required) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
+| `annotations` | string | `""` | Comma-separated key=value pairs to add to signature (e.g., `"env=prod,team=platform"`) |
+| `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
+| `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
+| `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
+
+### Verify Image Command Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `image` | string | *required* | Full image reference (e.g., `registry.com/image:tag`) |
+| `keyless` | boolean | `false` | Use keyless verification via certificate identity matching |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key (ignored if keyless) |
+| `certificate_identity` | string | *auto-detected* | Expected identity in Fulcio certificate (keyless only). Auto-detected from `CIRCLE_PROJECT_ID` if not provided. |
+| `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
+| `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
+| `certificate_oidc_issuer_regexp` | string | `""` | Regex pattern for OIDC issuer (keyless only) |
 
 ### Sign/Verify Blob Command Parameters
 
@@ -268,12 +351,20 @@ Cosign v1 and v2+ use different key formats:
 
 Keys generated with v2/v3 cannot be used with v1. If you need v1 compatibility, generate keys using Cosign v1.
 
+## 📖 Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Keyless Signing Guide](docs/keyless-signing.md) | OIDC-based signing with CircleCI, Fulcio, and Rekor |
+| [Private Key Signing Guide](docs/private-key-signing.md) | Traditional signing for air-gapped environments |
+| [Roadmap](docs/ROADMAP.md) | Planned features and enhancements |
+
 ## 🗺️ Roadmap
 
 We're actively developing new features. See our [roadmap](docs/ROADMAP.md) for planned enhancements including:
 
-- Keyless signing via CircleCI OIDC
 - Cloud KMS integration (AWS KMS, GCP KMS, Azure Key Vault)
+- Keyless attestations
 - Pre-built jobs for common workflows
 
 ## 🤝 Contributing
