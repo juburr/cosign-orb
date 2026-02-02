@@ -1,6 +1,6 @@
 # Keyless Signing Guide
 
-This guide covers keyless container image signing using CircleCI OIDC tokens and the Sigstore public infrastructure (Fulcio and Rekor).
+This guide covers keyless container image signing and attestation using CircleCI OIDC tokens and the Sigstore public infrastructure (Fulcio and Rekor).
 
 ## Overview
 
@@ -161,6 +161,48 @@ steps:
   - cosign/install
   - cosign/verify_image:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      keyless: true
+      certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
+      certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
+```
+
+### 4. Attach a Keyless Attestation
+
+Attach attestations (SBOMs, provenance, vulnerability reports) using keyless signing:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/attest:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate: "./sbom.spdx.json"
+      predicate_type: "spdxjson"
+      keyless: true
+      # No keys required! Uses CircleCI OIDC automatically
+```
+
+### 5. Verify a Keyless Attestation
+
+**Minimal configuration** (same-project verification):
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_attestation:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate_type: "spdxjson"
+      keyless: true
+      # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
+```
+
+**With explicit parameters** (for cross-project verification):
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_attestation:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate_type: "spdxjson"
       keyless: true
       certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
       certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
@@ -406,6 +448,16 @@ jobs:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
 
+      # Optionally attach an SBOM attestation
+      - run:
+          name: Generate SBOM
+          command: syft myregistry.com/myimage:${CIRCLE_SHA1} -o spdx-json > sbom.spdx.json
+      - cosign/attest:
+          image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+          predicate: "sbom.spdx.json"
+          predicate_type: "spdxjson"
+          keyless: true
+
   verify:
     docker:
       - image: cimg/base:current
@@ -415,6 +467,10 @@ jobs:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
+      - cosign/verify_attestation:
+          image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+          predicate_type: "spdxjson"
+          keyless: true
 
 workflows:
   build-sign-verify:

@@ -200,12 +200,19 @@ steps:
       name: Generate SBOM
       command: syft myregistry.com/myimage:${CIRCLE_SHA1} -o spdx-json > sbom.spdx.json
 
-  # Attach as attestation
+  # Attach as attestation (uses COSIGN_PRIVATE_KEY from context)
   - cosign/attest:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       predicate: "sbom.spdx.json"
       predicate_type: "spdxjson"
+
+  # Verify the attestation
+  - cosign/verify_attestation:
+      image: "myregistry.com/myimage:${CIRCLE_SHA1}"
+      predicate_type: "spdxjson"
 ```
+
+> **Note**: Attestations also support keyless mode. See the [Keyless Signing Guide](keyless-signing.md) for details on using OIDC-based attestations.
 
 ## Troubleshooting
 

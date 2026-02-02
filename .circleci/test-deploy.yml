@@ -572,6 +572,211 @@ jobs:
           certificate_oidc_issuer: ${OIDC_ISSUER}
           certificate_identity_regexp: ${OIDC_SUBJECT_REGEXP}
 
+  # Integration test: keyless attest and verify with Cosign v3
+  integration-test-keyless-attest-v3:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      IMAGE_TTL: 1h
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - cosign-orb/install:
+          version: "3.0.4"
+      - cosign-orb/check_oidc
+      - run:
+          name: Generate unique image reference
+          command: |
+            IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
+            IMAGE_REF="ttl.sh/cosign-orb-keyless-attest-v3-${IMAGE_UUID}:${IMAGE_TTL}"
+            echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
+            echo "Test image: ${IMAGE_REF}"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
+            echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            docker build -t "${IMAGE_REF}" .
+            docker push "${IMAGE_REF}"
+            echo "Pushed test image to ${IMAGE_REF}"
+      - run:
+          name: Extract OIDC claims for verification
+          command: |
+            # Get the Sigstore-audience token to extract claims
+            SIGSTORE_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
+            decode_jwt_part() {
+              local part="$1"
+              local b64=$(echo "$part" | tr '_-' '/+')
+              local pad=$((4 - ${#b64} % 4))
+              if [[ $pad -ne 4 ]]; then
+                b64="${b64}$(printf '=%.0s' $(seq 1 $pad))"
+              fi
+              echo "$b64" | base64 -d 2>/dev/null
+            }
+            PAYLOAD=$(decode_jwt_part "$(echo "${SIGSTORE_TOKEN}" | cut -d. -f2)")
+            OIDC_ISSUER=$(echo "${PAYLOAD}" | jq -r '.iss')
+            PROJECT_ID=$(echo "${PAYLOAD}" | jq -r '.["oidc.circleci.com/project-id"]')
+            OIDC_SUBJECT_REGEXP="https://circleci.com/api/v2/projects/${PROJECT_ID}/pipeline-definitions/.*"
+            echo "export OIDC_ISSUER='${OIDC_ISSUER}'" >> "${BASH_ENV}"
+            echo "export OIDC_SUBJECT_REGEXP='${OIDC_SUBJECT_REGEXP}'" >> "${BASH_ENV}"
+            echo "OIDC Issuer: ${OIDC_ISSUER}"
+            echo "OIDC Subject Regexp: ${OIDC_SUBJECT_REGEXP}"
+      - run:
+          name: Create test attestation predicate
+          command: |
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/attest:
+          image: ${IMAGE_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+          keyless: true
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_REF}
+          predicate_type: slsaprovenance
+          keyless: true
+          certificate_oidc_issuer: ${OIDC_ISSUER}
+          certificate_identity_regexp: ${OIDC_SUBJECT_REGEXP}
+
+  # Integration test: keyless attest and verify with Cosign v2
+  integration-test-keyless-attest-v2:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      IMAGE_TTL: 1h
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - cosign-orb/install:
+          version: "2.5.3"
+      - cosign-orb/check_oidc
+      - run:
+          name: Generate unique image reference
+          command: |
+            IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
+            IMAGE_REF="ttl.sh/cosign-orb-keyless-attest-v2-${IMAGE_UUID}:${IMAGE_TTL}"
+            echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
+            echo "Test image: ${IMAGE_REF}"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
+            echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            docker build -t "${IMAGE_REF}" .
+            docker push "${IMAGE_REF}"
+            echo "Pushed test image to ${IMAGE_REF}"
+      - run:
+          name: Extract OIDC claims for verification
+          command: |
+            # Get the Sigstore-audience token to extract claims
+            SIGSTORE_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
+            decode_jwt_part() {
+              local part="$1"
+              local b64=$(echo "$part" | tr '_-' '/+')
+              local pad=$((4 - ${#b64} % 4))
+              if [[ $pad -ne 4 ]]; then
+                b64="${b64}$(printf '=%.0s' $(seq 1 $pad))"
+              fi
+              echo "$b64" | base64 -d 2>/dev/null
+            }
+            PAYLOAD=$(decode_jwt_part "$(echo "${SIGSTORE_TOKEN}" | cut -d. -f2)")
+            OIDC_ISSUER=$(echo "${PAYLOAD}" | jq -r '.iss')
+            PROJECT_ID=$(echo "${PAYLOAD}" | jq -r '.["oidc.circleci.com/project-id"]')
+            OIDC_SUBJECT_REGEXP="https://circleci.com/api/v2/projects/${PROJECT_ID}/pipeline-definitions/.*"
+            echo "export OIDC_ISSUER='${OIDC_ISSUER}'" >> "${BASH_ENV}"
+            echo "export OIDC_SUBJECT_REGEXP='${OIDC_SUBJECT_REGEXP}'" >> "${BASH_ENV}"
+            echo "OIDC Issuer: ${OIDC_ISSUER}"
+            echo "OIDC Subject Regexp: ${OIDC_SUBJECT_REGEXP}"
+      - run:
+          name: Create test attestation predicate
+          command: |
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/attest:
+          image: ${IMAGE_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+          keyless: true
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_REF}
+          predicate_type: slsaprovenance
+          keyless: true
+          certificate_oidc_issuer: ${OIDC_ISSUER}
+          certificate_identity_regexp: ${OIDC_SUBJECT_REGEXP}
+
+  # Integration test: keyless attest and verify with Cosign v1
+  # Note: v1 keyless verification only supports exact identity match (no regexp).
+  # Since pipeline-definition-id changes per run, we verify with issuer only.
+  # The orb will warn that identity verification is skipped for v1.
+  integration-test-keyless-attest-v1:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      IMAGE_TTL: 1h
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - cosign-orb/install:
+          version: "1.13.6"
+      - cosign-orb/check_oidc
+      - run:
+          name: Generate unique image reference
+          command: |
+            IMAGE_UUID=$(echo "${CIRCLE_WORKFLOW_ID}" | head -c 8)
+            IMAGE_REF="ttl.sh/cosign-orb-keyless-attest-v1-${IMAGE_UUID}:${IMAGE_TTL}"
+            echo "export IMAGE_REF='${IMAGE_REF}'" >> "${BASH_ENV}"
+            echo "Test image: ${IMAGE_REF}"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: ttl.sh is a third-party service. DO NOT include sensitive data in test images.
+            echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            docker build -t "${IMAGE_REF}" .
+            docker push "${IMAGE_REF}"
+            echo "Pushed test image to ${IMAGE_REF}"
+      - run:
+          name: Extract OIDC claims for verification
+          command: |
+            # Get the Sigstore-audience token to extract claims
+            SIGSTORE_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
+            decode_jwt_part() {
+              local part="$1"
+              local b64=$(echo "$part" | tr '_-' '/+')
+              local pad=$((4 - ${#b64} % 4))
+              if [[ $pad -ne 4 ]]; then
+                b64="${b64}$(printf '=%.0s' $(seq 1 $pad))"
+              fi
+              echo "$b64" | base64 -d 2>/dev/null
+            }
+            PAYLOAD=$(decode_jwt_part "$(echo "${SIGSTORE_TOKEN}" | cut -d. -f2)")
+            # For v1, we can only use exact issuer match (no regexp support for identity)
+            OIDC_ISSUER=$(echo "${PAYLOAD}" | jq -r '.iss')
+            PROJECT_ID=$(echo "${PAYLOAD}" | jq -r '.["oidc.circleci.com/project-id"]')
+            OIDC_SUBJECT_REGEXP="https://circleci.com/api/v2/projects/${PROJECT_ID}/pipeline-definitions/.*"
+            echo "export OIDC_ISSUER='${OIDC_ISSUER}'" >> "${BASH_ENV}"
+            echo "export OIDC_SUBJECT_REGEXP='${OIDC_SUBJECT_REGEXP}'" >> "${BASH_ENV}"
+            echo "OIDC Issuer: ${OIDC_ISSUER}"
+            echo "OIDC Subject Regexp: ${OIDC_SUBJECT_REGEXP} (will be skipped for v1)"
+      - run:
+          name: Create test attestation predicate
+          command: |
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/attest:
+          image: ${IMAGE_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+          keyless: true
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_REF}
+          predicate_type: slsaprovenance
+          keyless: true
+          certificate_oidc_issuer: ${OIDC_ISSUER}
+          certificate_identity_regexp: ${OIDC_SUBJECT_REGEXP}
+
 workflows:
   test-deploy:
     jobs:
@@ -615,6 +820,14 @@ workflows:
       - integration-test-keyless-v1:
           filters: *filters
 
+      # Keyless attestation integration tests - uses CircleCI OIDC
+      - integration-test-keyless-attest-v3:
+          filters: *filters
+      - integration-test-keyless-attest-v2:
+          filters: *filters
+      - integration-test-keyless-attest-v1:
+          filters: *filters
+
       # Orb publishing
       - orb-tools/pack:
           filters: *release-filters
@@ -638,5 +851,8 @@ workflows:
             - integration-test-keyless-v3
             - integration-test-keyless-v2
             - integration-test-keyless-v1
+            - integration-test-keyless-attest-v3
+            - integration-test-keyless-attest-v2
+            - integration-test-keyless-attest-v1
           context: orb-publishing
           filters: *release-filters
