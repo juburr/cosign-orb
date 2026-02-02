@@ -1,17 +1,40 @@
 #!/bin/bash
 
+# This script verifies blob signatures using Cosign.
+# Supports two modes:
+#   1. Public key verification - Traditional verification with a public key
+#   2. Keyless verification - Verify using certificate identity and OIDC issuer
+
 set -e
 set +o history
 
-# Ensure CircleCI environment variables can be passed in as orb parameters
+# Read in orb parameters
 BLOB=$(circleci env subst "${PARAM_BLOB}")
 SIGNATURE=$(circleci env subst "${PARAM_SIGNATURE}")
-COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
+KEYLESS="${PARAM_KEYLESS:-false}"
+# Normalize boolean: CircleCI passes "true"/"false" strings, but also accept "1"/"0"
+if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
+    KEYLESS="1"
+else
+    KEYLESS="0"
+fi
+CERTIFICATE=$(circleci env subst "${PARAM_CERTIFICATE:-}")
+CERTIFICATE_IDENTITY=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY:-}")
+CERTIFICATE_IDENTITY_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")
+CERTIFICATE_OIDC_ISSUER=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER:-}")
+CERTIFICATE_OIDC_ISSUER_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}")
+
+# Only read key-related params if not using keyless
+if [[ "${KEYLESS}" != "1" ]]; then
+    COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
+fi
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    shred -vzuf -n 10 cosign.pub 2> /dev/null || true
+    if [ -f cosign.pub ]; then
+        shred -vzuf -n 10 cosign.pub 2> /dev/null || true
+    fi
     unset PARAM_PUBLIC_KEY
     unset COSIGN_PUBLIC_KEY
     echo "Secrets destroyed."
@@ -41,6 +64,140 @@ if [[ ! -f "${SIGNATURE}" ]]; then
 fi
 echo "Signature file: ${SIGNATURE}"
 
+# ==============================================================================
+# KEYLESS VERIFICATION MODE
+# ==============================================================================
+if [[ "${KEYLESS}" == "1" ]]; then
+    echo ""
+    echo "=== Keyless Verification Mode ==="
+
+    # Validate certificate file is provided for keyless mode
+    if [[ -z "${CERTIFICATE}" ]]; then
+        echo "ERROR: certificate is required for keyless blob verification."
+        echo ""
+        echo "Unlike image verification where certificates are retrieved from the registry,"
+        echo "blob verification requires the certificate file saved during signing."
+        echo ""
+        echo "Example:"
+        echo "  cosign/verify_blob:"
+        echo "    blob: \"./artifact.tar.gz\""
+        echo "    signature: \"./artifact.tar.gz.sig\""
+        echo "    certificate: \"./artifact.tar.gz.crt\""
+        echo "    keyless: true"
+        exit 1
+    fi
+
+    # Verify the certificate file exists
+    if [[ ! -f "${CERTIFICATE}" ]]; then
+        echo "ERROR: Certificate file does not exist: ${CERTIFICATE}"
+        exit 1
+    fi
+    echo "Certificate file: ${CERTIFICATE}"
+
+    # Auto-detect OIDC issuer from CircleCI environment if not provided
+    EFFECTIVE_OIDC_ISSUER="${CERTIFICATE_OIDC_ISSUER}"
+    EFFECTIVE_OIDC_ISSUER_REGEXP="${CERTIFICATE_OIDC_ISSUER_REGEXP}"
+    if [[ -z "${EFFECTIVE_OIDC_ISSUER}" ]] && [[ -z "${EFFECTIVE_OIDC_ISSUER_REGEXP}" ]]; then
+        if [[ -n "${CIRCLE_ORGANIZATION_ID:-}" ]]; then
+            EFFECTIVE_OIDC_ISSUER="https://oidc.circleci.com/org/${CIRCLE_ORGANIZATION_ID}"
+            echo "Auto-detected OIDC issuer from CIRCLE_ORGANIZATION_ID"
+        fi
+    fi
+
+    # Auto-detect certificate identity regexp from CircleCI environment if not provided
+    EFFECTIVE_IDENTITY="${CERTIFICATE_IDENTITY}"
+    EFFECTIVE_IDENTITY_REGEXP="${CERTIFICATE_IDENTITY_REGEXP}"
+    if [[ -z "${EFFECTIVE_IDENTITY}" ]] && [[ -z "${EFFECTIVE_IDENTITY_REGEXP}" ]]; then
+        if [[ -n "${CIRCLE_PROJECT_ID:-}" ]]; then
+            EFFECTIVE_IDENTITY_REGEXP="https://circleci.com/api/v2/projects/${CIRCLE_PROJECT_ID}/pipeline-definitions/.*"
+            echo "Auto-detected certificate identity regexp from CIRCLE_PROJECT_ID"
+        fi
+    fi
+
+    # Build identity flags
+    IDENTITY_FLAGS=()
+
+    # Certificate identity (required: either exact or regexp)
+    # Note: Cosign v1 only supports exact match, not regexp
+    if [[ -n "${EFFECTIVE_IDENTITY}" ]]; then
+        echo "Certificate identity: ${EFFECTIVE_IDENTITY}"
+        IDENTITY_FLAGS+=("--certificate-identity=${EFFECTIVE_IDENTITY}")
+    elif [[ -n "${EFFECTIVE_IDENTITY_REGEXP}" ]]; then
+        if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
+            echo "WARNING: Cosign v1 does not support --certificate-identity-regexp"
+            echo "Skipping identity verification (issuer will still be verified)."
+            echo "For full identity verification, upgrade to Cosign v2+."
+            # In v1, omitting --certificate-identity skips that check
+        else
+            echo "Certificate identity regexp: ${EFFECTIVE_IDENTITY_REGEXP}"
+            IDENTITY_FLAGS+=("--certificate-identity-regexp=${EFFECTIVE_IDENTITY_REGEXP}")
+        fi
+    else
+        if [ "${COSIGN_MAJOR_VERSION}" != "1" ]; then
+            echo "ERROR: Keyless verification requires either certificate_identity or certificate_identity_regexp"
+            echo ""
+            echo "You can either:"
+            echo "  1. Provide certificate_identity or certificate_identity_regexp parameter"
+            echo "  2. Run in a CircleCI environment where CIRCLE_PROJECT_ID is available"
+            exit 1
+        fi
+        # v1 allows skipping identity check
+    fi
+
+    # OIDC issuer (required: either exact or regexp)
+    # Note: Cosign v1 only supports exact match, not regexp
+    if [[ -n "${EFFECTIVE_OIDC_ISSUER}" ]]; then
+        echo "Certificate OIDC issuer: ${EFFECTIVE_OIDC_ISSUER}"
+        IDENTITY_FLAGS+=("--certificate-oidc-issuer=${EFFECTIVE_OIDC_ISSUER}")
+    elif [[ -n "${EFFECTIVE_OIDC_ISSUER_REGEXP}" ]]; then
+        if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
+            echo "ERROR: Cosign v1 does not support --certificate-oidc-issuer-regexp"
+            echo "Use certificate_oidc_issuer with an exact match, or upgrade to Cosign v2+."
+            exit 1
+        fi
+        echo "Certificate OIDC issuer regexp: ${EFFECTIVE_OIDC_ISSUER_REGEXP}"
+        IDENTITY_FLAGS+=("--certificate-oidc-issuer-regexp=${EFFECTIVE_OIDC_ISSUER_REGEXP}")
+    else
+        echo "ERROR: Keyless verification requires either certificate_oidc_issuer or certificate_oidc_issuer_regexp"
+        echo ""
+        echo "You can either:"
+        echo "  1. Provide certificate_oidc_issuer or certificate_oidc_issuer_regexp parameter"
+        echo "  2. Run in a CircleCI environment where CIRCLE_ORGANIZATION_ID is available"
+        exit 1
+    fi
+
+    # Verify blob signature using keyless mode
+    echo ""
+    echo "Verifying keyless signature for ${BLOB}..."
+
+    if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
+        # Cosign v1 requires COSIGN_EXPERIMENTAL=1 for keyless verification
+        COSIGN_EXPERIMENTAL=1 cosign verify-blob \
+            --certificate="${CERTIFICATE}" \
+            --signature="${SIGNATURE}" \
+            "${IDENTITY_FLAGS[@]}" \
+            "${BLOB}"
+    else
+        # Cosign v2 and v3
+        cosign verify-blob \
+            --certificate="${CERTIFICATE}" \
+            --signature="${SIGNATURE}" \
+            "${IDENTITY_FLAGS[@]}" \
+            "${BLOB}"
+    fi
+
+    echo ""
+    echo "=== Keyless Verification Complete ==="
+    echo "Blob verified: ${BLOB}"
+    exit 0
+fi
+
+# ==============================================================================
+# PUBLIC KEY VERIFICATION MODE
+# ==============================================================================
+echo ""
+echo "=== Public Key Verification Mode ==="
+
 # Load public key, normally a base64 encoded secret within a CircleCI context
 if [[ -z "${COSIGN_PUBLIC_KEY}" ]]; then
     echo "ERROR: Public key is empty. Check that the environment variable is set correctly."
@@ -68,5 +225,9 @@ else
     cosign verify-blob --key cosign.pub --signature "${SIGNATURE}" --private-infrastructure "${BLOB}"
 fi
 
+echo ""
+echo "=== Public Key Verification Complete ==="
+echo "Blob verified: ${BLOB}"
+
 # Cleanup
-rm cosign.pub
+rm -f cosign.pub

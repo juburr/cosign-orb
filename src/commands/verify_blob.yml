@@ -1,4 +1,4 @@
-description: Verifies a blob signature using Cosign.
+description: Verifies a blob signature using Cosign. Supports public key and keyless verification.
 parameters:
   blob:
     type: string
@@ -6,15 +6,63 @@ parameters:
   signature:
     type: string
     description: Path to the signature file.
+  keyless:
+    type: boolean
+    description: |
+      Use keyless verification. When enabled, verifies using certificate identity and OIDC issuer
+      instead of a public key. Requires the certificate file from keyless signing.
+      In CircleCI environments, verification parameters are auto-detected from
+      CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID if not explicitly provided.
+    default: false
+  certificate:
+    type: string
+    description: |
+      Path to the certificate file (keyless only). Required when keyless is true.
+      This is the certificate generated during keyless signing (certificate_output).
+    default: ""
   public_key:
     type: env_var_name
-    description: Base-64 encoded public key.
+    description: Base-64 encoded public key. Ignored when keyless is true.
     default: COSIGN_PUBLIC_KEY
+  certificate_identity:
+    type: string
+    description: |
+      Expected identity in the Fulcio certificate (keyless only).
+      For CircleCI, this is the certificate subject URL.
+      Example: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/<pipeline-def-id>"
+      If not provided, auto-detected from CIRCLE_PROJECT_ID (uses regexp matching).
+    default: ""
+  certificate_identity_regexp:
+    type: string
+    description: |
+      Regular expression to match certificate identity (keyless only).
+      Example: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/.*"
+      If not provided (and certificate_identity is empty), auto-generated from CIRCLE_PROJECT_ID.
+    default: ""
+  certificate_oidc_issuer:
+    type: string
+    description: |
+      Expected OIDC issuer in the Fulcio certificate (keyless only).
+      For CircleCI: "https://oidc.circleci.com/org/<org-id>"
+      If not provided, auto-detected from CIRCLE_ORGANIZATION_ID.
+    default: ""
+  certificate_oidc_issuer_regexp:
+    type: string
+    description: |
+      Regular expression to match OIDC issuer (keyless only).
+      Example: "https://oidc.circleci.com/org/.*"
+    default: ""
 steps:
   - run:
       name: Verify blob signature
       environment:
         PARAM_BLOB: << parameters.blob >>
         PARAM_SIGNATURE: << parameters.signature >>
+        PARAM_KEYLESS: << parameters.keyless >>
+        PARAM_CERTIFICATE: << parameters.certificate >>
         PARAM_PUBLIC_KEY: << parameters.public_key >>
+        PARAM_CERTIFICATE_IDENTITY: << parameters.certificate_identity >>
+        PARAM_CERTIFICATE_IDENTITY_REGEXP: << parameters.certificate_identity_regexp >>
+        PARAM_CERTIFICATE_OIDC_ISSUER: << parameters.certificate_oidc_issuer >>
+        PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP: << parameters.certificate_oidc_issuer_regexp >>
       command: << include(scripts/verify_blob.sh) >>

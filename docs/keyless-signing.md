@@ -208,6 +208,54 @@ steps:
       certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
 ```
 
+### 6. Sign a Blob (Keyless)
+
+Sign arbitrary files (binaries, SBOMs, config files) using keyless signing:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_blob:
+      blob: "./artifact.tar.gz"
+      keyless: true
+      signature_output: "./artifact.tar.gz.sig"
+      certificate_output: "./artifact.tar.gz.crt"
+      # No keys required! Uses CircleCI OIDC automatically
+```
+
+> **Important**: Unlike image signing where certificates are stored in the registry, blob signing requires you to save both the signature and certificate files. The `certificate_output` parameter is required for keyless blob signing.
+
+### 7. Verify a Keyless Blob Signature
+
+**Minimal configuration** (same-project verification):
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_blob:
+      blob: "./artifact.tar.gz"
+      signature: "./artifact.tar.gz.sig"
+      certificate: "./artifact.tar.gz.crt"
+      keyless: true
+      # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
+```
+
+**With explicit parameters** (for cross-project verification):
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_blob:
+      blob: "./artifact.tar.gz"
+      signature: "./artifact.tar.gz.sig"
+      certificate: "./artifact.tar.gz.crt"
+      keyless: true
+      certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
+      certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
+```
+
+> **Note**: The `certificate` parameter is required for keyless blob verification. This is the certificate file generated during signing (`certificate_output`).
+
 ## Understanding Certificate Identity
 
 When Fulcio issues a certificate for CircleCI, it transforms the OIDC claims into a specific format:
@@ -311,11 +359,11 @@ Use regexp if you want to accept any pipeline definition from your project:
 
 ## Version Compatibility
 
-| Cosign Version | Keyless Signing | Keyless Verification | Notes |
-|----------------|-----------------|----------------------|-------|
-| v1.x | Yes | Partial | Identity regexp not supported; issuer-only verification |
-| v2.x | Yes | Yes | Full support |
-| v3.x | Yes | Yes | Full support |
+| Cosign Version | Keyless Image Sign | Keyless Image Verify | Keyless Blob Sign | Keyless Blob Verify | Notes |
+|----------------|--------------------|----------------------|-------------------|---------------------|-------|
+| v1.x | Yes | Partial | Yes | Partial | Identity regexp not supported; issuer-only verification |
+| v2.x | Yes | Yes | Yes | Yes | Full support |
+| v3.x | Yes | Yes | Yes | Yes | Full support |
 
 ### Cosign v1 Limitations
 

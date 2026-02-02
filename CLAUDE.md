@@ -15,6 +15,20 @@ Local validation:
 - `yamllint .` - YAML linting (config: relaxed profile, max 200 char lines)
 - `shellcheck src/scripts/*.sh` - Shell script linting
 
+### Local Development Environment
+
+Developers on this project make a best effort to install all three major versions of Cosign for convenience in local development, testing, and viewing available commands:
+
+| Binary | Version | Purpose |
+|--------|---------|---------|
+| `cosign` | v3.0.4 | Latest major version (default) |
+| `cosign2` | v2.6.1 | Legacy v2 testing |
+| `cosign1` | v1.13.6 | Legacy v1 testing |
+
+### Reference Documentation
+
+The official Cosign project is included as a git submodule at `./ref/cosign` for quick review of source code and documentation. This allows convenient access to Cosign's implementation details when developing version-specific functionality.
+
 ## Architecture
 
 ### Orb Structure
