@@ -11,7 +11,13 @@ set +o history
 # Read in orb parameters
 BLOB=$(circleci env subst "${PARAM_BLOB}")
 SIGNATURE=$(circleci env subst "${PARAM_SIGNATURE}")
-KEYLESS="${PARAM_KEYLESS:-0}"
+KEYLESS="${PARAM_KEYLESS:-false}"
+# Normalize boolean: CircleCI passes "true"/"false" strings, but also accept "1"/"0"
+if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
+    KEYLESS="1"
+else
+    KEYLESS="0"
+fi
 CERTIFICATE=$(circleci env subst "${PARAM_CERTIFICATE:-}")
 CERTIFICATE_IDENTITY=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY:-}")
 CERTIFICATE_IDENTITY_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")

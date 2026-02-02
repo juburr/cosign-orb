@@ -11,7 +11,13 @@ set +o history
 # Read in orb parameters
 BLOB=$(circleci env subst "${PARAM_BLOB}")
 SIGNATURE_OUTPUT=$(circleci env subst "${PARAM_SIGNATURE_OUTPUT}")
-KEYLESS="${PARAM_KEYLESS:-0}"
+KEYLESS="${PARAM_KEYLESS:-false}"
+# Normalize boolean: CircleCI passes "true"/"false" strings, but also accept "1"/"0"
+if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
+    KEYLESS="1"
+else
+    KEYLESS="0"
+fi
 CERTIFICATE_OUTPUT=$(circleci env subst "${PARAM_CERTIFICATE_OUTPUT:-}")
 FULCIO_URL="${PARAM_FULCIO_URL:-https://fulcio.sigstore.dev}"
 REKOR_URL="${PARAM_REKOR_URL:-https://rekor.sigstore.dev}"
