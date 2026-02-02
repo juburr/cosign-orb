@@ -1,5 +1,5 @@
 <div align="center">
-  <img align="center" width="256" src="assets/logos/cosign-orb.png?v=3" alt="Cosign Orb">
+  <img align="center" width="256" src="assets/logos/cosign-orb.png?v=4" alt="Cosign Orb">
   <h1>CircleCI Cosign Orb</h1>
   <i>Secure container image signing and verification for CircleCI pipelines.</i><br /><br />
 </div>
@@ -242,6 +242,43 @@ steps:
       # Requires COSIGN_PUBLIC_KEY in your context
 ```
 
+### Keyless Sign and Verify a Blob (Recommended)
+
+Sign arbitrary files without managing keys using CircleCI's OIDC identity. Signatures are recorded in the public Sigstore transparency log.
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_blob:
+      blob: "./artifact.tar.gz"
+      keyless: true
+      signature_output: "./artifact.tar.gz.sig"
+      certificate_output: "./artifact.tar.gz.crt"  # Required for keyless blob signing
+      # No keys required! Uses CircleCI OIDC token automatically
+  - cosign/verify_blob:
+      blob: "./artifact.tar.gz"
+      signature: "./artifact.tar.gz.sig"
+      certificate: "./artifact.tar.gz.crt"  # Certificate from signing step
+      keyless: true
+      # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
+```
+
+For **cross-project** verification, specify the signing project's IDs:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/verify_blob:
+      blob: "./artifact.tar.gz"
+      signature: "./artifact.tar.gz.sig"
+      certificate: "./artifact.tar.gz.crt"
+      keyless: true
+      certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
+      certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
+```
+
+**Note:** Unlike image signing where certificates are stored in the registry, blob signing requires you to save the certificate file during signing and provide it during verification.
+
 ### Attach and Verify Attestations
 
 Attach attestations (SBOMs, provenance, vulnerability reports) using a private key:
@@ -338,16 +375,33 @@ steps:
 | `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
 | `certificate_oidc_issuer_regexp` | string | `""` | Regex pattern for OIDC issuer (keyless only) |
 
-### Sign/Verify Blob Command Parameters
+### Sign Blob Command Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `blob` | string | *required* | Path to the file to sign or verify |
-| `signature` | string | *required* (verify only) | Path to the signature file |
-| `signature_output` | string | `""` (stdout) | Path to write the signature (sign only) |
-| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key |
-| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key |
-| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password |
+| `blob` | string | *required* | Path to the file to sign |
+| `signature_output` | string | `""` (stdout) | Path to write the signature |
+| `keyless` | boolean | `false` | Use keyless signing via CircleCI OIDC (no keys required) |
+| `certificate_output` | string | `""` | Path to write the Fulcio certificate (required when keyless is true) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
+| `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
+| `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
+| `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
+
+### Verify Blob Command Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `blob` | string | *required* | Path to the file to verify |
+| `signature` | string | *required* | Path to the signature file |
+| `keyless` | boolean | `false` | Use keyless verification via certificate identity matching |
+| `certificate` | string | `""` | Path to the certificate file (required when keyless is true) |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key (ignored if keyless) |
+| `certificate_identity` | string | *auto-detected* | Expected identity in Fulcio certificate (keyless only). Auto-detected from `CIRCLE_PROJECT_ID` if not provided. |
+| `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
+| `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
+| `certificate_oidc_issuer_regexp` | string | `""` | Regex pattern for OIDC issuer (keyless only) |
 
 ### Attest Command Parameters
 

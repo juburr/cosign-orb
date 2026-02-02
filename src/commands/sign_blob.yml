@@ -1,4 +1,4 @@
-description: Signs a blob (arbitrary file) using Cosign.
+description: Signs a blob (arbitrary file) using Cosign. Supports private key signing and keyless signing via OIDC.
 parameters:
   blob:
     type: string
@@ -7,20 +7,53 @@ parameters:
     type: string
     description: Path to write the signature. If empty, signature goes to stdout.
     default: ""
+  keyless:
+    type: boolean
+    description: |
+      Use keyless signing via CircleCI OIDC. When enabled, signs using Fulcio certificates
+      and records signatures in the Rekor transparency log. No private key required.
+      Requires CIRCLE_OIDC_TOKEN to be available (CircleCI Cloud or Server 4.x+).
+      When using keyless mode, certificate_output is required to save the Fulcio certificate.
+    default: false
+  certificate_output:
+    type: string
+    description: |
+      Path to write the Fulcio certificate (keyless only). Required when keyless is true.
+      The certificate is needed for verification alongside the signature.
+    default: ""
   private_key:
     type: env_var_name
-    description: Base-64 encoded private key.
+    description: Base-64 encoded private key. Ignored when keyless is true.
     default: COSIGN_PRIVATE_KEY
   password:
     type: env_var_name
-    description: Password to use the private key.
+    description: Password to use the private key. Ignored when keyless is true.
     default: COSIGN_PASSWORD
+  fulcio_url:
+    type: string
+    description: Fulcio CA URL for keyless signing.
+    default: "https://fulcio.sigstore.dev"
+  rekor_url:
+    type: string
+    description: Rekor transparency log URL for keyless signing.
+    default: "https://rekor.sigstore.dev"
+  oidc_issuer:
+    type: string
+    description: |
+      OIDC issuer URL (for private Fulcio instances only).
+      When using the public Sigstore infrastructure, this is automatically set to CircleCI's issuer.
+    default: ""
 steps:
   - run:
       name: Sign blob
       environment:
         PARAM_BLOB: << parameters.blob >>
         PARAM_SIGNATURE_OUTPUT: << parameters.signature_output >>
+        PARAM_KEYLESS: << parameters.keyless >>
+        PARAM_CERTIFICATE_OUTPUT: << parameters.certificate_output >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>
         PARAM_PASSWORD: << parameters.password >>
+        PARAM_FULCIO_URL: << parameters.fulcio_url >>
+        PARAM_REKOR_URL: << parameters.rekor_url >>
+        PARAM_OIDC_ISSUER: << parameters.oidc_issuer >>
       command: << include(scripts/sign_blob.sh) >>
