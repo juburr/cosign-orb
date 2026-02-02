@@ -17,23 +17,23 @@ Private key signing is ideal for:
 │                        CircleCI Pipeline                            │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐ │
-│  │  CircleCI   │───►│   Cosign    │───►│   Container Registry    │ │
-│  │   Context   │    │   (sign)    │    │   (image + signature)   │ │
-│  └─────────────┘    └─────────────┘    └─────────────────────────┘ │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │
+│  │  CircleCI   │───►│   Cosign    │───►│   Container Registry    │  │
+│  │   Context   │    │   (sign)    │    │   (image + signature)   │  │
+│  └─────────────┘    └─────────────┘    └─────────────────────────┘  │
 │        │                                                            │
-│        │ COSIGN_PRIVATE_KEY (base64)                               │
+│        │ COSIGN_PRIVATE_KEY (base64)                                │
 │        │ COSIGN_PASSWORD                                            │
 │        ▼                                                            │
-│  ┌─────────────┐                                                   │
-│  │  Decoded    │  Permissions: 0400                                │
-│  │  cosign.key │  Destroyed after use (shred)                      │
-│  └─────────────┘                                                   │
+│  ┌─────────────┐                                                    │
+│  │  Decoded    │  Permissions: 0400                                 │
+│  │  cosign.key │  Destroyed after use (shred)                       │
+│  └─────────────┘                                                    │
 │                                                                     │
 │  NO external calls to:                                              │
-│  - Fulcio (certificate authority)                                  │
-│  - Rekor (transparency log)                                        │
-│  - Any Sigstore infrastructure                                     │
+│  - Fulcio (certificate authority)                                   │
+│  - Rekor (transparency log)                                         │
+│  - Any Sigstore infrastructure                                      │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```

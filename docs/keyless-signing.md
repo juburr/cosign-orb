@@ -20,47 +20,47 @@ Keyless signing eliminates the need to manage long-lived signing keys. Instead, 
 ## Security Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────────┐
 │                           CircleCI Pipeline                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. Request OIDC Token                                                      │
-│     ┌─────────────┐                                                        │
-│     │  CircleCI   │ ─── circleci run oidc get ───►  OIDC Token (JWT)       │
-│     │    Job      │     with audience "sigstore"                           │
-│     └─────────────┘                                                        │
-│            │                                                                │
-│            ▼                                                                │
-│  2. Exchange Token for Certificate                                          │
-│     ┌─────────────┐         ┌─────────────┐                                │
-│     │   Cosign    │ ──────► │   Fulcio    │  (Sigstore Certificate Authority)
-│     │             │         │             │                                │
-│     └─────────────┘         └─────────────┘                                │
-│            │                       │                                        │
-│            │                       ▼                                        │
-│            │              Validates OIDC token                             │
-│            │              Issues short-lived certificate (10 min)          │
-│            │              Certificate contains:                            │
-│            │                - Subject: CircleCI project URL                │
-│            │                - Issuer: CircleCI OIDC endpoint               │
-│            ▼                                                                │
-│  3. Sign Image                                                              │
-│     ┌─────────────┐         ┌─────────────┐                                │
-│     │   Cosign    │ ──────► │   Rekor     │  (Transparency Log)            │
-│     │             │         │             │                                │
-│     └─────────────┘         └─────────────┘                                │
-│            │                       │                                        │
-│            │                       ▼                                        │
-│            │              Records signature permanently                    │
-│            │              Provides inclusion proof                         │
-│            ▼                                                                │
-│  4. Push Signature to Registry                                              │
-│     ┌─────────────────────────┐                                            │
-│     │   Container Registry    │                                            │
-│     │   (image + signature)   │                                            │
-│     └─────────────────────────┘                                            │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. Request OIDC Token                                                       │
+│     ┌─────────────┐                                                          │
+│     │  CircleCI   │ ─── circleci run oidc get ───►  OIDC Token (JWT)         │
+│     │    Job      │     with audience "sigstore"                             │
+│     └─────────────┘                                                          │
+│            │                                                                 │
+│            ▼                                                                 │
+│  2. Exchange Token for Certificate                                           │
+│     ┌─────────────┐         ┌─────────────┐                                  │
+│     │   Cosign    │ ──────► │   Fulcio    │  (Sigstore Certificate Authority)|
+│     │             │         │             │                                  │
+│     └─────────────┘         └─────────────┘                                  │
+│            │                       │                                         │
+│            │                       ▼                                         │
+│            │              Validates OIDC token                               │
+│            │              Issues short-lived certificate (10 min)            │
+│            │              Certificate contains:                              │
+│            │                - Subject: CircleCI project URL                  │
+│            │                - Issuer: CircleCI OIDC endpoint                 │
+│            ▼                                                                 │
+│  3. Sign Image                                                               │
+│     ┌─────────────┐         ┌─────────────┐                                  │
+│     │   Cosign    │ ──────► │   Rekor     │  (Transparency Log)              │
+│     │             │         │             │                                  │
+│     └─────────────┘         └─────────────┘                                  │
+│            │                       │                                         │
+│            │                       ▼                                         │
+│            │              Records signature permanently                      │
+│            │              Provides inclusion proof                           │
+│            ▼                                                                 │
+│  4. Push Signature to Registry                                               │
+│     ┌─────────────────────────┐                                              │
+│     │   Container Registry    │                                              │
+│     │   (image + signature)   │                                              │
+│     └─────────────────────────┘                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
