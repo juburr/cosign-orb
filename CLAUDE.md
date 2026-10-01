@@ -61,6 +61,8 @@ The v3 approach creates a minimal signing config file inline:
 {"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
 ```
 
+Cosign 3.1 deprecates several flags the orb still passes (`--private-infrastructure`, `--tlog-upload`, `--fulcio-url`, `--rekor-url`, `--oidc-issuer`, `--new-bundle-format`, and the legacy blob `--output-signature` / `--output-certificate` / `--signature` flags). They remain registered and behave the same through 3.1.3. Removal is planned for v4, which will need a separate migration to `--bundle`, `--signing-config`, and `--insecure-ignore-tlog`.
+
 ### Key Format Compatibility
 
 **Warning:** Cosign v1 and v2+ use incompatible key formats:
