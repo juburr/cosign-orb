@@ -91,7 +91,7 @@ jobs:
     steps:
       - checkout
       - cosign/install:
-          version: "3.0.4"
+          version: "3.1.3"
           verify_checksums: strict
       - run:
           name: Use Cosign
@@ -135,7 +135,7 @@ jobs:
             docker build -t myregistry.com/myimage:${CIRCLE_SHA1} .
             docker push myregistry.com/myimage:${CIRCLE_SHA1}
       - cosign/install:
-          version: "3.0.4"
+          version: "3.1.3"
       - cosign/sign_image:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
@@ -336,7 +336,7 @@ steps:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `version` | string | `3.0.4` | Cosign version to install |
+| `version` | string | `3.1.3` | Cosign version to install |
 | `caching` | boolean | `true` | Cache the Cosign binary between runs |
 | `install_path` | string | `/home/circleci/bin` | Installation directory |
 | `verify_checksums` | enum | `known_versions` | Checksum verification mode: `strict`, `known_versions`, or `false` |

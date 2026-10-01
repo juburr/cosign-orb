@@ -102,7 +102,7 @@ jobs:
 
       # Install Cosign and sign the image
       - cosign/install:
-          version: "3.0.4"
+          version: "3.1.3"
       - cosign/sign_image:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
 

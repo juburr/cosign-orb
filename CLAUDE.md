@@ -21,8 +21,8 @@ Developers on this project make a best effort to install all three major version
 
 | Binary | Version | Purpose |
 |--------|---------|---------|
-| `cosign` | v3.0.4 | Latest major version (default) |
-| `cosign2` | v2.6.1 | Legacy v2 testing |
+| `cosign` | v3.1.3 | Latest major version (default) |
+| `cosign2` | v2.6.5 | Legacy v2 testing |
 | `cosign1` | v1.13.6 | Legacy v1 testing |
 
 ### Reference Documentation
@@ -71,7 +71,7 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 
 ### Checksum Verification
 
-`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for 75+ Cosign versions. Three verification modes:
+`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for published Cosign releases. Three verification modes:
 - `strict`: Fails if version not in lookup table
 - `known_versions` (default): Warns but allows unknown versions
 - `false`: Skips verification (not recommended)
