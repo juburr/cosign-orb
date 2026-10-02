@@ -21,8 +21,8 @@ Developers on this project make a best effort to install all three major version
 
 | Binary | Version | Purpose |
 |--------|---------|---------|
-| `cosign` | v3.0.4 | Latest major version (default) |
-| `cosign2` | v2.6.1 | Legacy v2 testing |
+| `cosign` | v3.1.3 | Latest major version (default) |
+| `cosign2` | v2.6.5 | Legacy v2 testing |
 | `cosign1` | v1.13.6 | Legacy v1 testing |
 
 ### Reference Documentation
@@ -61,6 +61,8 @@ The v3 approach creates a minimal signing config file inline:
 {"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
 ```
 
+Cosign 3.1 deprecates several flags the orb still passes (`--private-infrastructure`, `--tlog-upload`, `--fulcio-url`, `--rekor-url`, `--oidc-issuer`, `--new-bundle-format`, and the legacy blob `--output-signature` / `--output-certificate` / `--signature` flags). They remain registered and behave the same through 3.1.3. Removal is planned for v4, which will need a separate migration to `--bundle`, `--signing-config`, and `--insecure-ignore-tlog`.
+
 ### Key Format Compatibility
 
 **Warning:** Cosign v1 and v2+ use incompatible key formats:
@@ -71,7 +73,7 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 
 ### Checksum Verification
 
-`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for 75+ Cosign versions. Three verification modes:
+`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for published Cosign releases. Three verification modes:
 - `strict`: Fails if version not in lookup table
 - `known_versions` (default): Warns but allows unknown versions
 - `false`: Skips verification (not recommended)

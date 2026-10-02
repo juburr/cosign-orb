@@ -555,7 +555,7 @@ jobs:
             docker push myregistry.com/myimage:${CIRCLE_SHA1}
 
       - cosign/install:
-          version: "3.0.4"
+          version: "3.1.3"
       - cosign/sign_image:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
@@ -569,7 +569,7 @@ jobs:
       PIPELINE_DEFINITION_ID: "46322274-27e9-570a-832a-d0be5c3987b9"
     steps:
       - cosign/install:
-          version: "3.0.4"
+          version: "3.1.3"
       - run:
           name: Verify with exact identity
           command: |
@@ -583,7 +583,7 @@ jobs:
       - image: cimg/base:current
     steps:
       - cosign/install:
-          version: "3.0.4"
+          version: "3.1.3"
       - cosign/verify_image:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
