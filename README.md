@@ -264,6 +264,8 @@ steps:
       # Requires COSIGN_PUBLIC_KEY in your context
 ```
 
+`verify_image` passes only when Cosign verified an image signature. Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key or identity, including an attestation, as a signature. An image that was attested but never signed therefore fails `verify_image`; check its attestations with `verify_attestation`.
+
 ### Verify a Keyless Signature
 
 Verify images signed with keyless signing. When verifying images signed by the **same project**, parameters are auto-detected:
