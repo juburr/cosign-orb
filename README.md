@@ -59,6 +59,32 @@ Container image signing is a critical component of software supply chain securit
 - **Fully open source** - Complete transparency into orb behavior
 - **Your data stays yours** - All operations happen within your CircleCI environment
 
+## 🔐 Info for Security Teams
+
+Required external access to allow, if running a locked down, self-hosted CircleCI pipeline on-prem. This list covers what the orb's commands need. It assumes the runner can already reach CircleCI to receive jobs (for CircleCI Cloud, see the [runner FAQ](https://circleci.com/docs/guides/execution-runner/runner-faqs/#what-connectivity-is-required)).
+
+- **Installing Cosign** (`install`):
+  - `github.com`: Cosign release downloads from `https://github.com/sigstore/cosign/releases`.
+  - `release-assets.githubusercontent.com`: GitHub redirects release downloads here.
+  - `objects.githubusercontent.com`: GitHub's earlier redirect target for release downloads. Allow it as well, because GitHub has used both.
+  - CircleCI's cache storage, because `caching` defaults to `true` and `install` then runs `restore_cache` and `save_cache`. On CircleCI Cloud, the runner FAQ lists `circleci-tasks-prod.s3.us-east-1.amazonaws.com` for this. On CircleCI Server, it is the object storage your installation is configured with. Allow it, or set `caching: false`.
+- **Container registries** (`sign_image`, `attest`, `verify_image`, `verify_attestation`): every registry you sign or verify images in, including the hosts it sends clients to. A registry often issues tokens from a separate authentication host and serves layers from a storage or CDN host. Cosign, `crane` and `docker` all follow those redirects. For example:
+  - Docker Hub: `index.docker.io` / `registry-1.docker.io`, tokens from `auth.docker.io`, layers from `production.cloudflare.docker.com`.
+  - GitHub Container Registry: `ghcr.io`, layers from `pkg-containers.githubusercontent.com`.
+- **Signing and verifying with a private key**: nothing beyond the registries in most cases, because the transparency log is turned off. `sign_blob` and `verify_blob` need no network access at all. Two exceptions:
+  - `tuf-repo-cdn.sigstore.dev` when Cosign 2 verifies signatures or attestations stored as Sigstore bundles (Cosign 3's default format). Cosign 2 needs the Sigstore trusted root for bundles even with a key.
+  - Cosign 1 with `COSIGN_EXPERIMENTAL=1` exported in the job. That variable turns the transparency log back on: `sign_blob` uploads its signature to `rekor.sigstore.dev`, and the verify commands look entries up in `rekor.sigstore.dev` and `tuf-repo-cdn.sigstore.dev` (so `verify_image` and `verify_attestation` fail for signatures made without the log). Don't export it in jobs that use the private-key commands with Cosign 1.
+- **Keyless signing** (`sign_image`, `attest`, `sign_blob` with `keyless: true`):
+  - `fulcio.sigstore.dev`, or your `fulcio_url`: short-lived signing certificates.
+  - `rekor.sigstore.dev`, or your `rekor_url`: transparency log uploads.
+  - `tuf-repo-cdn.sigstore.dev`: the Sigstore trusted root (Fulcio, Rekor and certificate transparency log public keys), fetched over TUF. Cosign checks the signing responses against it.
+- **Keyless verification** (`keyless: true`):
+  - `verify_image` and `verify_attestation`: `tuf-repo-cdn.sigstore.dev` only. Fulcio and Rekor are not contacted, because the certificate and the transparency log proof are stored with the signature in the registry and checked offline against the trusted root.
+  - `verify_blob`: `tuf-repo-cdn.sigstore.dev` and `rekor.sigstore.dev`. A blob's signature file carries no transparency log proof, so Cosign looks the entry up in Rekor. If the blob was signed with a custom `rekor_url`, export `COSIGN_REKOR_URL` with that URL in the job, because `verify_blob` has no Rekor parameter and Cosign otherwise searches `rekor.sigstore.dev`.
+  - The verify commands have no `fulcio_url` or `rekor_url`.
+- **Private Sigstore deployments**: setting `fulcio_url` and `rekor_url` is not enough on its own. Cosign must also trust that deployment's Fulcio, Rekor and certificate transparency log keys, for signing as well as verification. Initialize Cosign from the deployment's TUF mirror before signing or verifying (for example `cosign initialize --mirror <url> --root <root.json>`), and allow that mirror instead of `tuf-repo-cdn.sigstore.dev`. `<root.json>` is the trust anchor for everything the mirror serves, so provision it through a trusted channel, such as a file in your repository or runner image, rather than fetching it from the mirror it is meant to authenticate. If you pass a URL instead, also pass `--root-checksum` (Cosign 2.4.2 and later). Without it, Cosign trusts whatever that URL serves and only prints a deprecation warning. See [Sigstore's custom components guide](https://docs.sigstore.dev/cosign/system_config/custom_components/).
+- **`oidc.circleci.com`**, or your `oidc_issuer` (for example on CircleCI Server), is the token issuer the keyless scripts name, but the job never connects to it. The orb gets its token from the CircleCI job (`circleci run oidc get`) and hands it to Cosign, so Cosign skips its OIDC login flow. Fulcio, not the runner, reads the issuer's discovery document and signing keys (JWKS) to validate the token. If you run your own Fulcio, that server needs access to the issuer and any JWKS host it advertises.
+
 ## 🧰 Available Commands
 
 | Command | Description |
@@ -189,6 +215,29 @@ steps:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       annotations: "build.commit=${CIRCLE_SHA1},build.pipeline=${CIRCLE_PIPELINE_NUMBER}"
 ```
+
+### Sign by Digest (Images, Helm Charts, and Other OCI Artifacts)
+
+`sign_image` and `attest` always sign a digest. Pass either a tag or a digest:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_image:
+      # Signed exactly as given, after checking that the registry serves this digest
+      image: "ghcr.io/my-org/charts/my-chart@sha256:<64 hex characters>"
+  - cosign/sign_image:
+      # Resolved to registry.example.com:5000/team/app@sha256:... first; the registry port is kept
+      image: "registry.example.com:5000/team/app:1.2.3"
+```
+
+How the digest is read:
+
+- **crane** (used when installed) reads the registry directly. It works for any OCI artifact, including Helm charts, and is recommended.
+- **docker** (fallback) uses the digest Docker recorded for the requested repository, then pulls `repository@digest` to confirm the registry serves it. Docker can only do this for content its engine can pull; Helm charts and other non-image artifacts need crane unless your Docker Engine uses the containerd image store.
+- Any failure stops the step. The orb never falls back from crane to docker, and never signs a digest the registry did not confirm.
+
+Only `sha256` digests are accepted, because that is what Cosign's reference parser supports. In a `repository:tag@sha256:...` reference the tag is ignored, as Cosign ignores it.
 
 ### Verify an Image Signature
 
@@ -373,7 +422,7 @@ Pipelines that use the orb's default Cosign version, or any version in the check
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `image` | string | *required* | Full image reference (e.g., `registry.com/image:tag`) |
+| `image` | string | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`) |
 | `keyless` | boolean | `false` | Use keyless signing via CircleCI OIDC (no keys required) |
 | `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
 | `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
@@ -426,7 +475,7 @@ Pipelines that use the orb's default Cosign version, or any version in the check
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `image` | string | *required* | Full image reference |
+| `image` | string | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`) |
 | `predicate` | string | *required* | Path to predicate file |
 | `predicate_type` | string | *required* | Attestation type (e.g., `spdxjson`, `cyclonedx`, `slsaprovenance`) |
 | `keyless` | boolean | `false` | Use keyless attestation via CircleCI OIDC (no keys required) |

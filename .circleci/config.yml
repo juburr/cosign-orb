@@ -9,6 +9,14 @@ filters: &filters
     only: /.*/
 
 jobs:
+  test-image-ref:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run image reference tests
+          command: bash test/image_ref_test.sh
   test-install:
     docker:
       - image: cimg/base:current
@@ -21,6 +29,8 @@ jobs:
 workflows:
   lint-pack:
     jobs:
+      - test-image-ref:
+          filters: *filters
       - test-install:
           filters: *filters
       - orb-tools/lint:
@@ -36,5 +46,5 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: cosign-orb
-          requires: [test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires: [test-image-ref, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
           filters: *filters
