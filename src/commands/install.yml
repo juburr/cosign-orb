@@ -1,4 +1,4 @@
-description: Installs the cosign binary. This command should be invoked prior to calling any other commands.
+description: Installs the cosign binary for Linux on amd64 or arm64, picked from the machine architecture. This command should be invoked prior to calling any other commands.
 parameters:
   caching:
     type: boolean
@@ -25,7 +25,9 @@ steps:
       condition: << parameters.caching >>
       steps:
         - restore_cache:
-            key: cosign-cache-<< parameters.version >>
+            # {{ arch }} keeps an amd64 binary from being restored onto an arm64 runner. restore_cache
+            # matches keys by prefix, so "-bin" stops version 3.1.1 from restoring a 3.1.10 cache.
+            key: cosign-cache-{{ arch }}-<< parameters.version >>-bin
   - run:
       name: Install Cosign
       environment:
@@ -37,7 +39,7 @@ steps:
       condition: << parameters.caching >>
       steps:
         - save_cache:
-            key: cosign-cache-<< parameters.version >>
+            key: cosign-cache-{{ arch }}-<< parameters.version >>-bin
             paths:
               - cosign.tar.gz
   - run:
