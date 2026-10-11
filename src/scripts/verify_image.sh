@@ -11,6 +11,7 @@ set +o history
 # Read in orb parameters
 IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 KEYLESS="${PARAM_KEYLESS:-0}"
+BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
 CERTIFICATE_IDENTITY=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY:-}")
 CERTIFICATE_IDENTITY_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")
 CERTIFICATE_OIDC_ISSUER=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER:-}")
@@ -41,6 +42,17 @@ if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] 
     exit 1
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
+
+# Load the shared format helpers (src/scripts/lib/bundle_format.sh).
+if [[ -z "${SCRIPT_BUNDLE_FORMAT_LIB:-}" ]]; then
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_BUNDLE_FORMAT_LIB is empty."
+    exit 1
+fi
+eval "${SCRIPT_BUNDLE_FORMAT_LIB}"
+
+echo "Expected signature storage format: ${BUNDLE_FORMAT}"
+verify_format_flags "${COSIGN_MAJOR_VERSION}" verify "${BUNDLE_FORMAT}" || exit 1
+echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 
 # ==============================================================================
 # KEYLESS VERIFICATION MODE
@@ -129,12 +141,15 @@ if [[ "${KEYLESS}" == "1" ]]; then
         # Cosign v1 requires COSIGN_EXPERIMENTAL=1 for keyless verification
         COSIGN_EXPERIMENTAL=1 cosign verify \
             "${IDENTITY_FLAGS[@]}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             "${IMAGE}"
     else
         # Cosign v2 and v3
         cosign verify \
             "${IDENTITY_FLAGS[@]}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             "${IMAGE}"
+        check_other_format_does_not_verify "${BUNDLE_FORMAT}" cosign verify "${IDENTITY_FLAGS[@]}" "${IMAGE}" || exit 1
     fi
 
     echo ""
@@ -169,10 +184,11 @@ echo "Set public key permissions: 0400"
 # Verify image signature using the public key
 echo "Verifying cosign signature for ${IMAGE}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign verify --key cosign.pub "${IMAGE}"
+    cosign verify --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}"
 else
     # Cosign v2 and v3: --private-infrastructure flag works in both versions
-    cosign verify --private-infrastructure --key cosign.pub "${IMAGE}"
+    cosign verify --private-infrastructure --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}"
+    check_other_format_does_not_verify "${BUNDLE_FORMAT}" cosign verify --private-infrastructure --key cosign.pub "${IMAGE}" || exit 1
 fi
 
 echo ""

@@ -45,6 +45,16 @@ parameters:
       Regular expression to match OIDC issuer (keyless only).
       Example: "https://oidc.circleci.com/org/.*"
     default: ""
+  bundle_format:
+    type: enum
+    enum: ["auto", "bundle", "legacy"]
+    default: auto
+    description: |
+      Which attestation storage format must satisfy verification.
+      auto: Cosign's own choice. Cosign 2.6.3+ and 3 prefer Sigstore bundles when any are attached and otherwise read legacy objects.
+      bundle: only Sigstore bundles (OCI referrers). Needs Cosign 2.5.0+.
+      legacy: only sha256-<hex>.sig / .att objects.
+      Where Cosign cannot be limited to one format (bundle on Cosign 3, legacy on Cosign 2.6.3+), the step also fails if objects in the other format verify.
 steps:
   - run:
       name: Verify Attestation
@@ -57,4 +67,6 @@ steps:
         PARAM_CERTIFICATE_IDENTITY_REGEXP: << parameters.certificate_identity_regexp >>
         PARAM_CERTIFICATE_OIDC_ISSUER: << parameters.certificate_oidc_issuer >>
         PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP: << parameters.certificate_oidc_issuer_regexp >>
+        PARAM_BUNDLE_FORMAT: << parameters.bundle_format >>
+        SCRIPT_BUNDLE_FORMAT_LIB: << include(scripts/lib/bundle_format.sh) >>
       command: << include(scripts/verify_attestation.sh) >>

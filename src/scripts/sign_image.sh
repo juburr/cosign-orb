@@ -12,6 +12,7 @@ set +o history
 IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 KEYLESS="${PARAM_KEYLESS:-0}"
 ANNOTATIONS=$(circleci env subst "${PARAM_ANNOTATIONS}")
+BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
 FULCIO_URL="${PARAM_FULCIO_URL:-https://fulcio.sigstore.dev}"
 REKOR_URL="${PARAM_REKOR_URL:-https://rekor.sigstore.dev}"
 # OIDC issuer for CircleCI keyless signing
@@ -38,6 +39,9 @@ cleanup_secrets() {
     if [ -f cosign.key ]; then
         shred -vzuf -n 10 cosign.key 2> /dev/null || true
     fi
+    if [[ -n "${SIGNING_CONFIG:-}" ]]; then
+        rm -f "${SIGNING_CONFIG}"
+    fi
     unset PARAM_PRIVATE_KEY
     unset PARAM_PASSWORD
     unset PASSWORD
@@ -56,12 +60,25 @@ if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] 
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
-# Load the shared image reference helpers (src/scripts/lib/image_ref.sh).
-if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" ]]; then
-    echo "ERROR: The image reference helpers were not loaded. SCRIPT_IMAGE_REF_LIB is empty."
+# Load the shared helpers (src/scripts/lib/image_ref.sh and bundle_format.sh).
+if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" || -z "${SCRIPT_BUNDLE_FORMAT_LIB:-}" ]]; then
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_IMAGE_REF_LIB or SCRIPT_BUNDLE_FORMAT_LIB is empty."
     exit 1
 fi
 eval "${SCRIPT_IMAGE_REF_LIB}"
+eval "${SCRIPT_BUNDLE_FORMAT_LIB}"
+
+# Pick the signature storage format flags before touching the registry.
+echo "Signature storage format: ${BUNDLE_FORMAT}"
+if [[ "${KEYLESS}" == "1" ]]; then
+    keyless_sign_flags "${COSIGN_MAJOR_VERSION}" sign "${BUNDLE_FORMAT}" || exit 1
+else
+    # Cosign 3 turns the transparency log off with an empty signing config (no Rekor, Fulcio or TSA).
+    SIGNING_CONFIG=$(mktemp)
+    printf '{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}\n' > "${SIGNING_CONFIG}"
+    private_key_sign_flags "${COSIGN_MAJOR_VERSION}" sign "${BUNDLE_FORMAT}" "${SIGNING_CONFIG}" || exit 1
+fi
+echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 
 # Determine the image digest
 echo "Determining image URI digest..."
@@ -137,6 +154,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --oidc-issuer="${OIDC_ISSUER}" \
             --identity-token="${SIGSTORE_ID_TOKEN}" \
             "${ANNOTATION_FLAGS[@]}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             -y \
             "${IMAGE_URI_DIGEST}"
     elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
@@ -146,6 +164,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
             "${ANNOTATION_FLAGS[@]}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             --yes \
             "${IMAGE_URI_DIGEST}"
     else
@@ -155,6 +174,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
             "${ANNOTATION_FLAGS[@]}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             --yes \
             --use-signing-config=false \
             "${IMAGE_URI_DIGEST}"
@@ -197,19 +217,10 @@ echo "Wrote private key: cosign.key"
 chmod 0400 cosign.key
 echo "Set private key permissions: 0400"
 
-# Sign the image using its digest
+# Sign the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log.
 echo "Signing ${IMAGE_URI_DIGEST}..."
-if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign sign --key cosign.key --no-tlog-upload "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
-elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
-    cosign sign --key cosign.key --tlog-upload=false "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
-else
-    # Cosign v3: Create an empty signing config for private infrastructure
-    SIGNING_CONFIG=$(mktemp)
-    printf '{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}\n' > "${SIGNING_CONFIG}"
-    cosign sign --key cosign.key --signing-config="${SIGNING_CONFIG}" "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
-    rm -f "${SIGNING_CONFIG}"
-fi
+cosign sign --key cosign.key "${BUNDLE_FORMAT_FLAGS[@]}" "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
+rm -f "${SIGNING_CONFIG}"
 
 echo ""
 echo "=== Private Key Signing Complete ==="

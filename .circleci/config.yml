@@ -17,11 +17,21 @@ jobs:
       - run:
           name: Run image reference tests
           command: bash test/image_ref_test.sh
+  test-bundle-format:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run bundle format tests
+          command: bash test/bundle_format_test.sh
 
 workflows:
   lint-pack:
     jobs:
       - test-image-ref:
+          filters: *filters
+      - test-bundle-format:
           filters: *filters
       - orb-tools/lint:
           filters: *filters
@@ -36,5 +46,5 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: cosign-orb
-          requires: [test-image-ref, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires: [test-image-ref, test-bundle-format, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
           filters: *filters

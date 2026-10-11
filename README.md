@@ -212,6 +212,48 @@ How the digest is read:
 
 Only `sha256` digests are accepted, because that is what Cosign's reference parser supports. In a `repository:tag@sha256:...` reference the tag is ignored, as Cosign ignores it.
 
+### Pin the Signature Storage Format
+
+Cosign can store signatures and attestations in two layouts, and its default changed between major versions. Set `bundle_format` on `sign_image`, `attest`, `verify_image` and `verify_attestation` so a Cosign upgrade cannot silently change what lands in your registry:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_image:
+      image: "ghcr.io/my-org/app@sha256:<64 hex characters>"
+      bundle_format: bundle
+  - cosign/attest:
+      image: "ghcr.io/my-org/app@sha256:<64 hex characters>"
+      predicate: "./sbom.spdx.json"
+      predicate_type: "spdxjson"
+      bundle_format: bundle
+  - cosign/verify_image:
+      image: "ghcr.io/my-org/app@sha256:<64 hex characters>"
+      bundle_format: bundle
+```
+
+| `bundle_format` | What `sign_image` and `attest` write for subject `sha256:<hex>` |
+|-----------------|--------------------------------------------------------------|
+| `auto` (default) | Whatever the installed Cosign writes by default: `legacy` for Cosign 1 and 2, `bundle` for Cosign 3 (including the orb's default, 3.1.3). |
+| `bundle` | One Sigstore bundle (`application/vnd.dev.sigstore.bundle.v0.3+json`) per signature or attestation, in an OCI 1.1 manifest whose `subject` is the digest. The manifest annotation `dev.sigstore.bundle.predicateType` is `https://sigstore.dev/cosign/sign/v1` for signatures, or the attestation's predicate type. Registries with the OCI referrers API index these natively. Other registries get an image index under the tag `sha256-<hex>` that lists them. Every run adds a new manifest. |
+| `legacy` | The tag `sha256-<hex>.sig` for signatures and `sha256-<hex>.att` for attestations. Each is one image with one layer per signature or attestation, and every run adds a layer. |
+
+With a private key, both formats skip the transparency log. On the verify commands, `bundle_format` names the format that must satisfy verification:
+
+- Cosign is limited to that format wherever it has a switch for it.
+- Two cases have no switch. Cosign 3 falls back to legacy objects when no bundle is attached, and Cosign 2.6.3+ switches to bundles whenever any are attached. In those cases the step verifies normally, then fails if objects in the other format also verify.
+- With `auto`, Cosign 2.6.3+ and 3 prefer bundles when present. Earlier Cosign 2 releases only read legacy objects.
+
+**Choosing a format:**
+
+| | `bundle` | `legacy` |
+|---|---|---|
+| Cosign support | Write: Cosign 2.6.0+ (`sign_image`), 2.5.0+ (`attest`), and 3.x. Read: Cosign 2.6.0+ (`verify_image`), 2.5.0+ (`verify_attestation`), 3.x. | Every Cosign version. Cosign 3 deprecates it and plans to remove it in Cosign 4. In Cosign 3, private-key signing without a transparency log needs the deprecated `--tlog-upload=false --use-signing-config=false` flags. |
+| Offline verification (`cosign save`, then `cosign verify --local-image`) | Works with Cosign 3.1.3 when the subject is a single image manifest (for example a Helm chart). Fails when the subject is an image index (for example a multi-platform image), and fails on Cosign 2.6.5. The saved layout stores the bundles as blobs that `index.json` does not list; Cosign 3 finds them by scanning the blobs. | Works with Cosign 2 and 3, for image manifests and image indexes. `index.json` lists the signatures and attestations (annotation `kind`: `dev.cosignproject.cosign/sigs` and `.../atts`). |
+| Other tools | Need OCI referrers and Sigstore bundle support. | Read by older policy engines and admission controllers that only know `.sig`/`.att` tags. |
+
+Prefer `bundle` unless something that reads your signatures only understands `.sig`/`.att` tags, or you need offline verification of multi-platform images. Whichever you choose, set it explicitly in production pipelines. Keyless signing can pin the format its Cosign major writes by default (`legacy` for Cosign 1 and 2, `bundle` for Cosign 3), but cannot switch formats.
+
 ### Verify an Image Signature
 
 ```yaml
@@ -385,6 +427,7 @@ steps:
 | `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
 | `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
 | `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
+| `bundle_format` | enum | `auto` | Signature storage format: `auto`, `bundle`, or `legacy`. See [Pin the Signature Storage Format](#pin-the-signature-storage-format) |
 
 ### Verify Image Command Parameters
 
@@ -397,6 +440,7 @@ steps:
 | `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
 | `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
 | `certificate_oidc_issuer_regexp` | string | `""` | Regex pattern for OIDC issuer (keyless only) |
+| `bundle_format` | enum | `auto` | Signature format that must satisfy verification: `auto`, `bundle`, or `legacy` |
 
 ### Sign Blob Command Parameters
 
@@ -439,6 +483,7 @@ steps:
 | `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
 | `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
 | `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
+| `bundle_format` | enum | `auto` | Attestation storage format: `auto`, `bundle`, or `legacy` |
 
 ### Verify Attestation Command Parameters
 
@@ -452,6 +497,7 @@ steps:
 | `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
 | `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
 | `certificate_oidc_issuer_regexp` | string | `""` | Regex pattern for OIDC issuer (keyless only) |
+| `bundle_format` | enum | `auto` | Attestation format that must satisfy verification: `auto`, `bundle`, or `legacy` |
 
 ## 🔑 Key Management
 
