@@ -28,8 +28,9 @@ exit 1
 EOF
 
 # Prints COSIGN_GIT_VERSION for "cosign version" and COSIGN_VERIFY_STDOUT for
-# "cosign verify". A verification carrying COSIGN_FAIL_FLAG fails, which is
-# how the counter-check behaves when the subject has only one format.
+# "cosign verify". A verification carrying COSIGN_FAIL_FLAG fails with Cosign's
+# "no signatures found" error, which is how the counter-check behaves when the
+# subject has only one format.
 cat > "${TMP}/bin/cosign" << 'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "version" ]]; then
@@ -39,7 +40,8 @@ fi
 if [[ "${1:-}" == "verify" ]]; then
   for arg in "$@"; do
     if [[ -n "${COSIGN_FAIL_FLAG:-}" && "$arg" == "${COSIGN_FAIL_FLAG}" ]]; then
-      exit 1
+      printf 'Error: no signatures found\n' >&2
+      exit 10
     fi
   done
   printf '%s' "${COSIGN_VERIFY_STDOUT}"
