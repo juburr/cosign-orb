@@ -61,6 +61,10 @@ The v3 approach creates a minimal signing config file inline:
 {"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
 ```
 
+`sign_image` and `attest` take a `bundle_format` parameter (`auto`, `bundle`, `legacy`); the flag mapping per Cosign version lives in `src/scripts/lib/bundle_format.sh`. Cosign 3 rejects `--signing-config` with the legacy format, so `legacy` on Cosign 3 uses `--new-bundle-format=false --use-signing-config=false --tlog-upload=false`. `verify_image` and `verify_attestation` take the same parameter; where Cosign cannot be limited to one format (bundle on Cosign 3, legacy on Cosign 2.6.3+), they also run a second verification limited to the other format, which must fail.
+
+Shared shell helpers live in `src/scripts/lib/`. Commands pass them to the step through an environment variable (`SCRIPT_..._LIB: << include(scripts/lib/....sh) >>`) and the script `eval`s it. Unit tests for them are in `test/` and run in the `lint-pack` workflow.
+
 Cosign 3.1 deprecates several flags the orb still passes (`--private-infrastructure`, `--tlog-upload`, `--fulcio-url`, `--rekor-url`, `--oidc-issuer`, `--new-bundle-format`, and the legacy blob `--output-signature` / `--output-certificate` / `--signature` flags). They remain registered and behave the same through 3.1.3. Removal is planned for v4, which will need a separate migration to `--bundle`, `--signing-config`, and `--insecure-ignore-tlog`.
 
 ### Key Format Compatibility
