@@ -5,7 +5,8 @@ set +o history
 
 # Read in orb parameters
 INSTALL_PATH=$(circleci env subst "${PARAM_INSTALL_PATH}")
-VERIFY_CHECKSUMS="${PARAM_VERIFY_CHECKSUMS}"
+# Fail closed: anything but an explicit opt-out verifies against the table.
+VERIFY_CHECKSUMS="${PARAM_VERIFY_CHECKSUMS:-strict}"
 VERSION=$(circleci env subst "${PARAM_VERSION}")
 
 # Print command arguments for debugging purposes.
@@ -13,6 +14,14 @@ echo "Running Cosign installer..."
 echo "  INSTALL_PATH: ${INSTALL_PATH}"
 echo "  VERIFY_CHECKSUMS: ${VERIFY_CHECKSUMS}"
 echo "  VERSION: ${VERSION}"
+
+case "${VERIFY_CHECKSUMS}" in
+    strict | known_versions | false) ;;
+    *)
+        echo "ERROR: verify_checksums must be strict, known_versions or false, not '${VERIFY_CHECKSUMS}'."
+        exit 1
+        ;;
+esac
 
 # Lookup table of sha512 checksums for different versions of cosign-linux-amd64
 declare -A sha512sums
@@ -136,12 +145,12 @@ if [[ "${VERIFY_CHECKSUMS}" != "false" ]]; then
         # a hard error, via "strict mode" (recommended), or to allow execution for versions
         # not directly specified in the above lookup table.
         if [[ "${VERIFY_CHECKSUMS}" == "known_versions" ]]; then
-            echo "WARN: No checksum available for version ${VERSION}, but strict mode is not enabled."
-            echo "WARN: Either upgrade this orb, submit a PR with the new checksum."
+            echo "WARN: No checksum available for version ${VERSION}, and verify_checksums is known_versions."
+            echo "WARN: Installing an UNVERIFIED binary. Upgrade this orb or submit a PR with the new checksum."
             echo "WARN: Skipping checksum verification..."
         else
-            echo "ERROR: No checksum available for version ${VERSION} and strict mode is enabled."
-            echo "ERROR: Either upgrade this orb, submit a PR with the new checksum, or set 'verify_checksums' to 'known_versions'."
+            echo "ERROR: No checksum available for version ${VERSION}, so it cannot be verified (verify_checksums: strict)."
+            echo "ERROR: Upgrade this orb, submit a PR with the new checksum, or opt out with verify_checksums: known_versions."
             exit 1
         fi
     fi

@@ -330,6 +330,20 @@ steps:
       certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
 ```
 
+## ⬆️ Upgrade Notes
+
+### v0.10.0: checksum verification fails closed
+
+`install` now defaults to `verify_checksums: strict`. If you install a Cosign version that this orb has no SHA-512 checksum for, the step fails instead of installing an unverified binary. Earlier releases defaulted to `known_versions`, which printed a warning and installed it anyway.
+
+Pipelines that use the orb's default Cosign version, or any version in the checksum table, are unaffected. If you need a newer Cosign before the orb lists it, either upgrade the orb or opt out explicitly:
+
+```yaml
+- cosign/install:
+    version: "3.2.0"
+    verify_checksums: known_versions  # installs unlisted versions without verification
+```
+
 ## ⚙️ Configuration
 
 ### Install Command Parameters
@@ -339,7 +353,7 @@ steps:
 | `version` | string | `3.1.3` | Cosign version to install |
 | `caching` | boolean | `true` | Cache the Cosign binary between runs |
 | `install_path` | string | `/home/circleci/bin` | Installation directory |
-| `verify_checksums` | enum | `known_versions` | Checksum verification mode: `strict`, `known_versions`, or `false` |
+| `verify_checksums` | enum | `strict` | Checksum verification mode: `strict` (fail unless the version's SHA-512 is in the orb's table and matches), `known_versions` (opt-out: install unlisted versions unverified), or `false` (opt-out: never verify) |
 
 ### Generate Key Pair Command Parameters
 

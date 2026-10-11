@@ -10,8 +10,12 @@ parameters:
   verify_checksums:
     type: enum
     enum: ["false", "known_versions", "strict"]
-    default: known_versions
-    description: Option to perform SHA-512 checksum verification on the downloaded Cosign executable.
+    default: strict
+    description: |
+      SHA-512 checksum verification of the downloaded Cosign executable.
+      strict (default): fail unless the version is in the orb's checksum table and the checksum matches.
+      known_versions: verify listed versions, but install unlisted versions without verification (opt-out).
+      false: never verify (opt-out, not recommended).
   version:
     type: string
     default: "3.1.3"
