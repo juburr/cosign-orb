@@ -234,7 +234,37 @@ verify_format_flags() {
 
 # Cosign errors that mean nothing in the requested format verified, as
 # opposed to a registry, network or trust material failure.
-BUNDLE_FORMAT_NOT_VERIFIED_PATTERN='no signatures found|no matching signatures|no matching attestations|no valid bundles exist in registry'
+BUNDLE_FORMAT_NOT_VERIFIED_PATTERN='no signatures found|no matching signatures|no matching attestations|none of the attestations matched the predicate type|no valid bundles exist in registry'
+
+# Prints IMAGE pinned to the digest its tag points at now, so the first and
+# second verifications inspect the same image even if the tag moves between
+# them. A digest reference is printed unchanged. cosign triangulate resolves
+# the tag the same way verification does, in Cosign 1, 2 and 3.
+pin_image_to_digest() {
+    local image="$1"
+    local out repository last
+
+    if [[ "${image}" == *@sha256:* ]]; then
+        printf '%s\n' "${image}"
+        return 0
+    fi
+    if ! out="$(cosign triangulate --type signature "${image}")"; then
+        bundle_format_log "ERROR: Could not resolve ${image} to a digest."
+        return 1
+    fi
+    if [[ ! "${out}" =~ :sha256-([0-9a-f]{64})\.sig$ ]]; then
+        bundle_format_log "ERROR: Could not read a digest for ${image} from '${out}'."
+        return 1
+    fi
+    # A colon is a tag separator only in the last path component, so a
+    # registry port is kept.
+    repository="${image}"
+    last="${repository##*/}"
+    if [[ "${last}" == *:* ]]; then
+        repository="${repository%:*}"
+    fi
+    printf '%s@sha256:%s\n' "${repository}" "${BASH_REMATCH[1]}"
+}
 
 # Runs the second verification described above when one is needed. Pass the
 # cosign command without the image, then the image as the last argument.

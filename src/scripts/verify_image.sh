@@ -54,6 +54,13 @@ echo "Expected signature storage format: ${BUNDLE_FORMAT}"
 verify_format_flags "${COSIGN_MAJOR_VERSION}" verify "${BUNDLE_FORMAT}" "${COSIGN_VERSION}" || exit 1
 echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 
+# A second, format-limited verification follows. Pin a tag to one digest so
+# both verifications check the same image.
+if [[ ${#BUNDLE_FORMAT_COUNTER_FLAGS[@]} -gt 0 ]]; then
+    IMAGE=$(pin_image_to_digest "${IMAGE}") || exit 1
+    echo "  Verifying ${IMAGE}"
+fi
+
 # ==============================================================================
 # KEYLESS VERIFICATION MODE
 # ==============================================================================
