@@ -37,7 +37,8 @@ trap cleanup_secrets EXIT
 # Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key or identity
 # as an image signature, including an attestation bundle. Require that at
 # least one verified payload is an image signature: the legacy simple signing
-# type, or the bundle signature predicate type.
+# type, or the bundle signature predicate type. Returns 1 if none is, and 2 if
+# the output can't be read.
 require_image_signature() {
     local output="$1"
     local types
@@ -45,13 +46,40 @@ require_image_signature() {
     printf '%s\n' "${output}"
     if ! types="$(printf '%s\n' "${output}" | jq -r -s '[.[] | if type == "array" then .[] else . end | .critical.type? // "unknown"] | unique | join(", ")')"; then
         echo "ERROR: Could not read Cosign's verification output."
-        return 1
+        return 2
     fi
     echo "Verified payload types: ${types}"
     if ! printf '%s\n' "${output}" | jq -e -s '[.[] | if type == "array" then .[] else . end | .critical.type?] | any(. == "cosign container image signature" or . == "https://sigstore.dev/cosign/sign/v1")' > /dev/null; then
-        echo "ERROR: Nothing that verified is an image signature. The image may only have attestations."
+        echo "No image signature among them. The image may only have attestations."
         return 1
     fi
+}
+
+# Verifies IMAGE with Cosign 2 or 3 (the command and its flags are the
+# arguments) and requires an image signature. When an image has any Sigstore
+# bundle, Cosign 3 checks only bundles, and Cosign 2.6.3 and later can't be
+# limited to legacy signatures at all. So with bundle_format auto, Cosign 3
+# checks the legacy signatures when no bundle is an image signature.
+verify_image_signature() {
+    local output status=0
+
+    output=$("$@" "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}") || return 1
+    require_image_signature "${output}" || status=$?
+    if [[ "${status}" -eq 1 && "${COSIGN_MAJOR_VERSION}" == "3" && "${BUNDLE_FORMAT}" == "auto" ]]; then
+        echo "Checking legacy signatures only (--new-bundle-format=false)..."
+        output=$("$@" --new-bundle-format=false "${IMAGE}") || return 1
+        status=0
+        require_image_signature "${output}" || status=$?
+    fi
+    if [[ "${status}" -eq 0 ]]; then
+        return 0
+    fi
+    if [[ "${status}" -eq 1 && "${COSIGN_MAJOR_VERSION}" == "2" && "${BUNDLE_FORMAT}" != "bundle" ]] \
+        && cosign_version_at_least "${COSIGN_VERSION}" 2.6.3; then
+        echo "If the image also has a legacy signature, Cosign ${COSIGN_VERSION} can't verify it: Cosign 2.6.3 and later check only Sigstore bundles when an image has any. Use Cosign 3, or sign in the bundle format."
+    fi
+    echo "ERROR: No image signature verified."
+    return 1
 }
 
 # Verify Cosign version is supported
@@ -173,11 +201,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
         require_image_signature "${VERIFY_OUTPUT}" || exit 1
     else
         # Cosign v2 and v3
-        VERIFY_OUTPUT=$(cosign verify \
-            "${IDENTITY_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
-            "${IMAGE}")
-        require_image_signature "${VERIFY_OUTPUT}" || exit 1
+        verify_image_signature cosign verify "${IDENTITY_FLAGS[@]}" || exit 1
         check_other_format_does_not_verify "${BUNDLE_FORMAT}" cosign verify "${IDENTITY_FLAGS[@]}" "${IMAGE}" || exit 1
     fi
 
@@ -217,8 +241,7 @@ if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     require_image_signature "${VERIFY_OUTPUT}" || exit 1
 else
     # Cosign v2 and v3: --private-infrastructure flag works in both versions
-    VERIFY_OUTPUT=$(cosign verify --private-infrastructure --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}")
-    require_image_signature "${VERIFY_OUTPUT}" || exit 1
+    verify_image_signature cosign verify --private-infrastructure --key cosign.pub || exit 1
     check_other_format_does_not_verify "${BUNDLE_FORMAT}" cosign verify --private-infrastructure --key cosign.pub "${IMAGE}" || exit 1
 fi
 

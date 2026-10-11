@@ -266,6 +266,12 @@ steps:
 
 `verify_image` passes only when Cosign verified an image signature. Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key or identity, including an attestation, as a signature. An image that was attested but never signed therefore fails `verify_image`; check its attestations with `verify_attestation`.
 
+An image can carry a legacy signature next to Sigstore bundle attestations, for example when it was signed with `bundle_format: legacy` and attested with Cosign 3's default. Cosign checks only bundles when an image has any:
+
+- With Cosign 3 and `bundle_format: auto`, `verify_image` then checks the legacy signatures too.
+- With `bundle_format: legacy`, Cosign 3 is limited to legacy signatures.
+- Cosign 2.6.3 and later can't be limited to legacy signatures, so they can't verify such an image. Use Cosign 3, or sign in the bundle format.
+
 ### Verify a Keyless Signature
 
 Verify images signed with keyless signing. When verifying images signed by the **same project**, parameters are auto-detected:
