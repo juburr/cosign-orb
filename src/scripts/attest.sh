@@ -73,49 +73,20 @@ if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] 
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
-# Determine the image digest
-echo "Determining image URI digest..."
-IMAGE_URI_DIGEST=""
-if command -v crane 1> /dev/null; then
-    echo "  Tool: crane"
-    # While docker inspect returns registry/image@sha256:hash, crane simply returns
-    # sha256:hash. We need to add the registry/image@ prefix ourselves.
-    DIGEST=$(crane digest "${IMAGE}")
-    echo "  DIGEST: ${DIGEST}"
-    IMAGE_WITHOUT_TAG=$(echo "${IMAGE}" | cut -d ':' -f 1)
-    echo "  IMAGE_WITHOUT_TAG: ${IMAGE_WITHOUT_TAG}"
-    IMAGE_URI_DIGEST="${IMAGE_WITHOUT_TAG}@${DIGEST}"
-    echo "  IMAGE_URI_DIGEST: ${IMAGE_URI_DIGEST}"
-elif command -v docker 1> /dev/null; then
-    echo "  Tool: docker"
-
-    # Docker requires the image to exist locally in order for
-    # the "docker inspect" command to return the digest. It
-    # fails with a hard error otherwise.
-    if docker image inspect "${IMAGE}" > /dev/null 2>&1; then
-        echo "The image exists locally."
-    else
-        echo "The image does not exist locally, but is needed by Docker to compute the digest."
-        echo "Pulling image ${IMAGE}..."
-        docker pull "${IMAGE}"
-    fi
-
-    # When pushing a single image to multiple registries, docker inspect always returns
-    # a registry/image@sha256:hash value with the first registry you attempted to use, even if
-    # $IMAGE is that of the second registry. Reconstruct the correct value ourselves.
-    DIGEST_WITH_REGISTRY=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}")
-    echo "  DIGEST_WITH_REGISTRY: ${DIGEST_WITH_REGISTRY}"
-    DIGEST=$(echo "${DIGEST_WITH_REGISTRY}" | cut -d '@' -f 2)
-    echo "  DIGEST: ${DIGEST}"
-    IMAGE_WITHOUT_TAG=$(echo "${IMAGE}" | cut -d ':' -f 1)
-    echo "  IMAGE_WITHOUT_TAG: ${IMAGE_WITHOUT_TAG}"
-    IMAGE_URI_DIGEST="${IMAGE_WITHOUT_TAG}@${DIGEST}"
-    echo "  IMAGE_URI_DIGEST: ${IMAGE_URI_DIGEST}"
-else
-    echo "This orb requires that either crane or docker be installed."
-    cleanup_secrets
+# Load the shared image reference helpers (src/scripts/lib/image_ref.sh).
+if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" ]]; then
+    echo "ERROR: The image reference helpers were not loaded. SCRIPT_IMAGE_REF_LIB is empty."
     exit 1
 fi
+eval "${SCRIPT_IMAGE_REF_LIB}"
+
+# Determine the image digest
+echo "Determining image URI digest..."
+if ! IMAGE_URI_DIGEST=$(resolve_image_uri_digest "${IMAGE}"); then
+    echo "ERROR: Could not determine the digest for ${IMAGE}."
+    exit 1
+fi
+echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
 
 # ==============================================================================
 # KEYLESS ATTESTATION MODE

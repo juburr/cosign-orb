@@ -2,7 +2,10 @@ description: Attaches an attestation to a container image using Cosign. Supports
 parameters:
   image:
     type: string
-    description: Container image to attach the attestation to.
+    description: |
+      Image or OCI artifact to attest, by tag (registry/repo:tag) or by digest (registry/repo@sha256:<hex>).
+      A tag is resolved to a digest before attesting. A digest is attested as given, after checking the registry serves it.
+      Reading the digest requires crane, or docker for container images.
   predicate:
     type: string
     description: Path to the predicate file.
@@ -51,4 +54,5 @@ steps:
         PARAM_FULCIO_URL: << parameters.fulcio_url >>
         PARAM_REKOR_URL: << parameters.rekor_url >>
         PARAM_OIDC_ISSUER: << parameters.oidc_issuer >>
+        SCRIPT_IMAGE_REF_LIB: << include(scripts/lib/image_ref.sh) >>
       command: << include(scripts/attest.sh) >>

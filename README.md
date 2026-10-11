@@ -215,6 +215,29 @@ steps:
       annotations: "build.commit=${CIRCLE_SHA1},build.pipeline=${CIRCLE_PIPELINE_NUMBER}"
 ```
 
+### Sign by Digest (Images, Helm Charts, and Other OCI Artifacts)
+
+`sign_image` and `attest` always sign a digest. Pass either a tag or a digest:
+
+```yaml
+steps:
+  - cosign/install
+  - cosign/sign_image:
+      # Signed exactly as given, after checking that the registry serves this digest
+      image: "ghcr.io/my-org/charts/my-chart@sha256:<64 hex characters>"
+  - cosign/sign_image:
+      # Resolved to registry.example.com:5000/team/app@sha256:... first; the registry port is kept
+      image: "registry.example.com:5000/team/app:1.2.3"
+```
+
+How the digest is read:
+
+- **crane** (used when installed) reads the registry directly. It works for any OCI artifact, including Helm charts, and is recommended.
+- **docker** (fallback) uses the digest Docker recorded for the requested repository, then pulls `repository@digest` to confirm the registry serves it. Docker can only do this for content its engine can pull; Helm charts and other non-image artifacts need crane unless your Docker Engine uses the containerd image store.
+- Any failure stops the step. The orb never falls back from crane to docker, and never signs a digest the registry did not confirm.
+
+Only `sha256` digests are accepted, because that is what Cosign's reference parser supports. In a `repository:tag@sha256:...` reference the tag is ignored, as Cosign ignores it.
+
 ### Verify an Image Signature
 
 ```yaml
@@ -380,7 +403,7 @@ steps:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `image` | string | *required* | Full image reference (e.g., `registry.com/image:tag`) |
+| `image` | string | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`) |
 | `keyless` | boolean | `false` | Use keyless signing via CircleCI OIDC (no keys required) |
 | `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
 | `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
@@ -433,7 +456,7 @@ steps:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `image` | string | *required* | Full image reference |
+| `image` | string | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`) |
 | `predicate` | string | *required* | Path to predicate file |
 | `predicate_type` | string | *required* | Attestation type (e.g., `spdxjson`, `cyclonedx`, `slsaprovenance`) |
 | `keyless` | boolean | `false` | Use keyless attestation via CircleCI OIDC (no keys required) |

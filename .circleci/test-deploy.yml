@@ -164,6 +164,30 @@ jobs:
       - cosign-orb/verify_attestation:
           image: ${IMAGE_REF}
           predicate_type: slsaprovenance
+      - run:
+          name: Read the test image digest
+          command: |
+            # The image was pushed to one repository only, so RepoDigests has one entry.
+            IMAGE_DIGEST_REF=$(docker image inspect --format '{{index .RepoDigests 0}}' "${IMAGE_REF}")
+            if [[ ! "${IMAGE_DIGEST_REF}" =~ ^ttl\.sh/[^@]+@sha256:[0-9a-f]{64}$ ]]; then
+              echo "ERROR: unexpected digest reference '${IMAGE_DIGEST_REF}'"
+              exit 1
+            fi
+            echo "export IMAGE_DIGEST_REF='${IMAGE_DIGEST_REF}'" >> "${BASH_ENV}"
+            echo "Digest reference: ${IMAGE_DIGEST_REF}"
+      # Digest reference on a registry without a port. The old parser turned
+      # repo@sha256:<hex> into repo@sha256@sha256:<hex>.
+      - cosign-orb/sign_image:
+          image: ${IMAGE_DIGEST_REF}
+      - cosign-orb/attest:
+          image: ${IMAGE_DIGEST_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - cosign-orb/verify_image:
+          image: ${IMAGE_DIGEST_REF}
+      - cosign-orb/verify_attestation:
+          image: ${IMAGE_DIGEST_REF}
+          predicate_type: slsaprovenance
 
   # Integration test: sign and verify image with Cosign v2
   integration-test-v2:
@@ -282,6 +306,133 @@ jobs:
       - cosign-orb/verify_attestation:
           image: ${IMAGE_REF}
           predicate_type: slsaprovenance
+
+  # Integration test: image references against a registry with a port.
+  # The registry runs on the machine's own Docker Engine, so cosign, crane and
+  # docker all reach it at localhost:5000. Covers a tag reference and a digest
+  # reference for sign_image and attest, then verifies both by digest.
+  integration-test-image-refs:
+    parameters:
+      digest_tool:
+        type: enum
+        enum: ["crane", "docker"]
+        description: Tool the orb uses to read digests. The docker run has no crane on PATH.
+      version:
+        type: string
+        description: Cosign version to install.
+    machine:
+      image: ubuntu-2204:current
+    environment:
+      REGISTRY: localhost:5000
+    steps:
+      - checkout
+      - run:
+          name: Prepare install path and tools
+          command: |
+            mkdir -p /home/circleci/bin
+            echo 'export PATH="/home/circleci/bin:${PATH}"' >> "${BASH_ENV}"
+            command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
+      - when:
+          condition:
+            equal: [crane, << parameters.digest_tool >>]
+          steps:
+            - run:
+                name: Install crane
+                command: |
+                  CRANE_VERSION="0.20.2"
+                  CRANE_SHA256="c14340087103ba9dadf61d45acd20675490fd0ccbd56ac7901fc1b502137f44b"
+                  curl -fsSL -o crane.tar.gz \
+                    "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+                  echo "${CRANE_SHA256}  crane.tar.gz" | sha256sum -c -
+                  tar -xzf crane.tar.gz -C /home/circleci/bin crane
+                  rm crane.tar.gz
+                  crane version
+      - when:
+          condition:
+            equal: [docker, << parameters.digest_tool >>]
+          steps:
+            - run:
+                name: Confirm crane is absent
+                command: |
+                  if command -v crane; then
+                    echo "ERROR: crane is on PATH, so the docker path would not be tested."
+                    exit 1
+                  fi
+      - run:
+          name: Start registry:2 on localhost:5000
+          command: |
+            # mirror.gcr.io serves the Docker Hub registry:2 image without Docker Hub's anonymous pull limits.
+            docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
+            for i in $(seq 1 30); do
+              curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
+              sleep 1
+            done
+            echo "ERROR: registry did not start"
+            docker logs registry
+            exit 1
+      - cosign-orb/install:
+          version: << parameters.version >>
+          caching: false
+      - cosign-orb/generate_key_pair:
+          password: "test-password-image-refs"
+      - run:
+          name: Build and push test images
+          command: |
+            # SECURITY: DO NOT include sensitive data in test images.
+            printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+            for name in tag-ref digest-ref; do
+              echo "${name} test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+              docker build -t "${REGISTRY}/cosign-orb/${name}:1.0" .
+              docker push "${REGISTRY}/cosign-orb/${name}:1.0"
+            done
+            # Digests read straight from the registry API, independent of the orb.
+            for name in tag-ref digest-ref; do
+              digest=$(curl -fsSI -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+                -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+                -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+                -H "Accept: application/vnd.oci.image.index.v1+json" \
+                "http://${REGISTRY}/v2/cosign-orb/${name}/manifests/1.0" | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest" {print $2}')
+              if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "ERROR: could not read the digest of ${name}"
+                exit 1
+              fi
+              var=$(echo "${name}" | tr 'a-z-' 'A-Z_')
+              echo "export ${var}_DIGEST_REF='${REGISTRY}/cosign-orb/${name}@${digest}'" >> "${BASH_ENV}"
+              echo "${name}: ${REGISTRY}/cosign-orb/${name}@${digest}"
+            done
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      # Tag reference on a registry with a port.
+      - cosign-orb/sign_image:
+          image: ${REGISTRY}/cosign-orb/tag-ref:1.0
+      - cosign-orb/attest:
+          image: ${REGISTRY}/cosign-orb/tag-ref:1.0
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - cosign-orb/verify_image:
+          image: ${TAG_REF_DIGEST_REF}
+      - cosign-orb/verify_attestation:
+          image: ${TAG_REF_DIGEST_REF}
+          predicate_type: slsaprovenance
+      # Digest reference on a registry with a port.
+      - cosign-orb/sign_image:
+          image: ${DIGEST_REF_DIGEST_REF}
+      - cosign-orb/attest:
+          image: ${DIGEST_REF_DIGEST_REF}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - cosign-orb/verify_image:
+          image: ${DIGEST_REF_DIGEST_REF}
+      - cosign-orb/verify_attestation:
+          image: ${DIGEST_REF_DIGEST_REF}
+          predicate_type: slsaprovenance
+      - run:
+          name: Confirm nothing was signed under a mangled name
+          command: |
+            # The old parser turned localhost:5000/ns/img into localhost@sha256:... (Docker Hub library/localhost).
+            # Signatures must only exist under the two test repositories.
+            CATALOG=$(curl -fsS "http://${REGISTRY}/v2/_catalog")
+            echo "Registry catalog: ${CATALOG}"
+            echo "${CATALOG}" | jq -e '.repositories | sort == ["cosign-orb/digest-ref", "cosign-orb/tag-ref"]'
 
   # Integration test: sign and verify blob with Cosign v3
   integration-test-blob-v3:
@@ -998,6 +1149,15 @@ workflows:
       - integration-test-v1:
           filters: *filters
 
+      # Image reference tests - tag and digest references against a registry with a port
+      - integration-test-image-refs:
+          name: integration-test-image-refs-<< matrix.digest_tool >>-v<< matrix.version >>
+          matrix:
+            parameters:
+              digest_tool: ["crane", "docker"]
+              version: ["3.1.3", "2.6.5", "1.13.6"]
+          filters: *filters
+
       # Blob integration tests - generate throwaway keys, no context needed
       - integration-test-blob-v3:
           filters: *filters
@@ -1047,6 +1207,7 @@ workflows:
             - integration-test-v3
             - integration-test-v2
             - integration-test-v1
+            - integration-test-image-refs
             - integration-test-blob-v3
             - integration-test-blob-v2
             - integration-test-blob-v1
