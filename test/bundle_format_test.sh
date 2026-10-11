@@ -235,6 +235,7 @@ run_counter_error_cases() {
   classify "no matching signatures" "Error: no matching signatures: invalid signature when validating ASN.1 encoded signature" pass
   classify "no matching attestations" "Error: no matching attestations: " pass
   classify "no valid bundles" "Error: no valid bundles exist in registry" pass
+  classify "only other predicate types" "Error: none of the attestations matched the predicate type: slsaprovenance, found: https://cosign.sigstore.dev/attestation/v1" pass
   classify "registry unreachable" 'Error: Get "https://registry.local:5000/v2/": dial tcp 10.0.0.1:5000: connect: connection refused' fail
   classify "authentication failure" "Error: GET https://registry.local:5000/v2/app/manifests/sha256-abc.sig: UNAUTHORIZED: authentication required" fail
   classify "trust material lookup" "Error: unable to fetch trusted root: tuf-repo-cdn.sigstore.dev: timeout" fail
@@ -293,7 +294,110 @@ EOF
   done
 }
 
+# A tag is pinned to one digest before the two verifications.
+run_pin_cases() {
+  local stub="${TMP}/pin-bin" hex
+  hex="$(printf 'd%.0s' {1..64})"
+  mkdir -p "$stub"
+  cat > "${stub}/cosign" << 'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "triangulate" ]]; then
+  printf '%s\n' "$*" >> "$COSIGN_LOG"
+  printf '%s\n' "${TRIANGULATE_OUT-}"
+  exit "${TRIANGULATE_EXIT:-0}"
+fi
+exit 1
+EOF
+  chmod +x "${stub}/cosign"
+
+  pin() {
+    local name="$1" image="$2" out="$3" exit_code="$4" want="$5" got status
+    : > "$COSIGN_LOG"
+    set +e
+    got="$(PATH="${stub}:${PATH}" TRIANGULATE_OUT="$out" TRIANGULATE_EXIT="$exit_code" bash -c 'eval "$(cat "$1")"; pin_image_to_digest "$2"' _ "$LIB" "$image" 2> /dev/null)"
+    status=$?
+    set -e
+    if [[ "$want" == "fail" ]]; then
+      if [[ "$status" -ne 0 && -z "$got" ]]; then pass_case "pin: ${name}"; else fail_case "pin: ${name}: got '${got}' (exit ${status}), wanted a failure"; fi
+    elif [[ "$status" -eq 0 && "$got" == "$want" ]]; then
+      pass_case "pin: ${name}"
+    else
+      fail_case "pin: ${name}: got '${got}' (exit ${status}), wanted '${want}'"
+    fi
+  }
+  pin "tag with a registry port" "localhost:5000/ns/app:1.0" "localhost:5000/ns/app:sha256-${hex}.sig" 0 "localhost:5000/ns/app@sha256:${hex}"
+  pin "no tag" "ghcr.io/org/app" "ghcr.io/org/app:sha256-${hex}.sig" 0 "ghcr.io/org/app@sha256:${hex}"
+  pin "signatures in another repository" "ghcr.io/org/app:v1" "ghcr.io/org/signatures:sha256-${hex}.sig" 0 "ghcr.io/org/app@sha256:${hex}"
+  pin "digest reference is kept" "ghcr.io/org/app@sha256:${hex}" "unused" 0 "ghcr.io/org/app@sha256:${hex}"
+  if [[ -s "$COSIGN_LOG" ]]; then fail_case "pin: a digest reference was resolved again"; fi
+  pin "triangulate fails" "ghcr.io/org/app:v1" "" 1 fail
+  pin "unexpected triangulate output" "ghcr.io/org/app:v1" "ghcr.io/org/app:v1.sig" 0 fail
+}
+
+# verify_image and verify_attestation must run both verifications against the
+# same pinned digest when a tag is given.
+run_pinned_script_cases() {
+  local stub="${TMP}/verify-bin" hex log="${TMP}/verify.log" script subcommand
+  hex="$(printf 'e%.0s' {1..64})"
+  mkdir -p "$stub"
+  cat > "${stub}/cosign" << 'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  version) printf '{"gitVersion":"v3.1.3"}\n'; exit 0 ;;
+  triangulate) printf 'registry.local:5000/app:sha256-%s.sig\n' "$PIN_HEX"; exit 0 ;;
+  verify | verify-attestation)
+    printf '%s\n' "$*" >> "$VERIFY_LOG"
+    for arg in "$@"; do
+      if [[ "$arg" == "--new-bundle-format=false" ]]; then
+        printf 'Error: no signatures found\n' >&2
+        exit 10
+      fi
+    done
+    printf '[{"critical":{"type":"https://sigstore.dev/cosign/sign/v1"}}]\n'
+    exit 0
+    ;;
+esac
+exit 1
+EOF
+  cat > "${stub}/circleci" << 'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "env" && "${2:-}" == "subst" ]]; then
+  printf '%s\n' "${3-}"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "${stub}/cosign" "${stub}/circleci"
+
+  for script in verify_image verify_attestation; do
+    subcommand=verify
+    [[ "$script" == "verify_attestation" ]] && subcommand=verify-attestation
+    : > "$log"
+    set +e
+    (
+      cd "$TMP"
+      PATH="${stub}:/usr/bin:/bin" VERIFY_LOG="$log" PIN_HEX="$hex" \
+        PARAM_IMAGE="registry.local:5000/app:1.0" PARAM_KEYLESS=0 PARAM_BUNDLE_FORMAT=bundle \
+        PARAM_PREDICATE_TYPE=slsaprovenance PARAM_PUBLIC_KEY=TEST_PUBLIC_KEY TEST_PUBLIC_KEY=dGVzdA== \
+        SCRIPT_BUNDLE_FORMAT_LIB="$(cat "$LIB")" \
+        bash "${ROOT}/src/scripts/${script}.sh" > /dev/null 2>&1
+    )
+    local status=$?
+    set -e
+    local calls pinned
+    calls="$(grep -c "^${subcommand} " "$log" || true)"
+    pinned="$(grep -c "registry.local:5000/app@sha256:${hex}$" "$log" || true)"
+    if [[ "$status" -eq 0 && "$calls" -eq 2 && "$pinned" -eq 2 ]]; then
+      pass_case "${script}: both verifications use the pinned digest"
+    else
+      fail_case "${script}: exit ${status}, ${calls} verifications, ${pinned} on the pinned digest: $(tr '\n' '|' < "$log")"
+    fi
+  done
+}
+
 main() {
+  run_pin_cases
+  run_pinned_script_cases
   run_version_cases
   run_counter_error_cases
   run_signing_config_cleanup_cases
