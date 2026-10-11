@@ -2,7 +2,10 @@ description: Signs a container image using Cosign. Supports private key signing 
 parameters:
   image:
     type: string
-    description: Container image to be signed. Include the full path with the tag at the end.
+    description: |
+      Image or OCI artifact to sign, by tag (registry/repo:tag) or by digest (registry/repo@sha256:<hex>).
+      A tag is resolved to a digest before signing. A digest is signed as given, after checking the registry serves it.
+      Reading the digest requires crane, or docker for container images.
   keyless:
     type: boolean
     description: |
@@ -48,4 +51,5 @@ steps:
         PARAM_FULCIO_URL: << parameters.fulcio_url >>
         PARAM_REKOR_URL: << parameters.rekor_url >>
         PARAM_OIDC_ISSUER: << parameters.oidc_issuer >>
+        SCRIPT_IMAGE_REF_LIB: << include(scripts/lib/image_ref.sh) >>
       command: << include(scripts/sign_image.sh) >>

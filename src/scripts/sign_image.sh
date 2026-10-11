@@ -56,29 +56,17 @@ if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] 
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
+# Load the shared image reference helpers (src/scripts/lib/image_ref.sh).
+if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" ]]; then
+    echo "ERROR: The image reference helpers were not loaded. SCRIPT_IMAGE_REF_LIB is empty."
+    exit 1
+fi
+eval "${SCRIPT_IMAGE_REF_LIB}"
+
 # Determine the image digest
 echo "Determining image URI digest..."
-IMAGE_URI_DIGEST=""
-if command -v crane 1> /dev/null; then
-    echo "  Tool: crane"
-    DIGEST=$(crane digest "${IMAGE}")
-    IMAGE_WITHOUT_TAG=$(echo "${IMAGE}" | cut -d ':' -f 1)
-    IMAGE_URI_DIGEST="${IMAGE_WITHOUT_TAG}@${DIGEST}"
-elif command -v docker 1> /dev/null; then
-    echo "  Tool: docker"
-    if docker image inspect "${IMAGE}" > /dev/null 2>&1; then
-        echo "The image exists locally."
-    else
-        echo "The image does not exist locally, but is needed by Docker to compute the digest."
-        echo "Pulling image ${IMAGE}..."
-        docker pull "${IMAGE}"
-    fi
-    DIGEST_WITH_REGISTRY=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}")
-    DIGEST=$(echo "${DIGEST_WITH_REGISTRY}" | cut -d '@' -f 2)
-    IMAGE_WITHOUT_TAG=$(echo "${IMAGE}" | cut -d ':' -f 1)
-    IMAGE_URI_DIGEST="${IMAGE_WITHOUT_TAG}@${DIGEST}"
-else
-    echo "This orb requires that either crane or docker be installed."
+if ! IMAGE_URI_DIGEST=$(resolve_image_uri_digest "${IMAGE}"); then
+    echo "ERROR: Could not determine the digest for ${IMAGE}."
     exit 1
 fi
 echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
