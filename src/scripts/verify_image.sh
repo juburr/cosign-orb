@@ -34,6 +34,26 @@ cleanup_secrets() {
 }
 trap cleanup_secrets EXIT
 
+# Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key or identity
+# as an image signature, including an attestation bundle. Require that at
+# least one verified payload is an image signature: the legacy simple signing
+# type, or the bundle signature predicate type.
+require_image_signature() {
+    local output="$1"
+    local types
+
+    printf '%s\n' "${output}"
+    if ! types="$(printf '%s\n' "${output}" | jq -r -s '[.[] | if type == "array" then .[] else . end | .critical.type? // "unknown"] | unique | join(", ")')"; then
+        echo "ERROR: Could not read Cosign's verification output."
+        return 1
+    fi
+    echo "Verified payload types: ${types}"
+    if ! printf '%s\n' "${output}" | jq -e -s '[.[] | if type == "array" then .[] else . end | .critical.type?] | any(. == "cosign container image signature" or . == "https://sigstore.dev/cosign/sign/v1")' > /dev/null; then
+        echo "ERROR: Nothing that verified is an image signature. The image may only have attestations."
+        return 1
+    fi
+}
+
 # Verify Cosign version is supported
 COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
@@ -139,16 +159,18 @@ if [[ "${KEYLESS}" == "1" ]]; then
 
     if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
         # Cosign v1 requires COSIGN_EXPERIMENTAL=1 for keyless verification
-        COSIGN_EXPERIMENTAL=1 cosign verify \
+        VERIFY_OUTPUT=$(COSIGN_EXPERIMENTAL=1 cosign verify \
             "${IDENTITY_FLAGS[@]}" \
             "${BUNDLE_FORMAT_FLAGS[@]}" \
-            "${IMAGE}"
+            "${IMAGE}")
+        require_image_signature "${VERIFY_OUTPUT}" || exit 1
     else
         # Cosign v2 and v3
-        cosign verify \
+        VERIFY_OUTPUT=$(cosign verify \
             "${IDENTITY_FLAGS[@]}" \
             "${BUNDLE_FORMAT_FLAGS[@]}" \
-            "${IMAGE}"
+            "${IMAGE}")
+        require_image_signature "${VERIFY_OUTPUT}" || exit 1
         check_other_format_does_not_verify "${BUNDLE_FORMAT}" cosign verify "${IDENTITY_FLAGS[@]}" "${IMAGE}" || exit 1
     fi
 
@@ -184,10 +206,12 @@ echo "Set public key permissions: 0400"
 # Verify image signature using the public key
 echo "Verifying cosign signature for ${IMAGE}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign verify --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}"
+    VERIFY_OUTPUT=$(cosign verify --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}")
+    require_image_signature "${VERIFY_OUTPUT}" || exit 1
 else
     # Cosign v2 and v3: --private-infrastructure flag works in both versions
-    cosign verify --private-infrastructure --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}"
+    VERIFY_OUTPUT=$(cosign verify --private-infrastructure --key cosign.pub "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}")
+    require_image_signature "${VERIFY_OUTPUT}" || exit 1
     check_other_format_does_not_verify "${BUNDLE_FORMAT}" cosign verify --private-infrastructure --key cosign.pub "${IMAGE}" || exit 1
 fi
 
