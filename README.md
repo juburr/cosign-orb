@@ -66,15 +66,19 @@ Required external access to allow, if running a locked down, self-hosted CircleC
   - `github.com`: Cosign release downloads from `https://github.com/sigstore/cosign/releases`.
   - `release-assets.githubusercontent.com`: GitHub redirects release downloads here.
   - `objects.githubusercontent.com`: GitHub's earlier redirect target for release downloads. Allow it as well, because GitHub has used both.
-- **Signing and verifying with a private key** (`sign_image`, `attest`, `verify_image`, `verify_attestation`, `sign_blob`, `verify_blob`):
-  - Your container registries, for the image commands. `crane` or `docker`, which the orb uses to read digests, also contact only those registries.
-  - Nothing else in most cases, because the transparency log is turned off.
-  - `tuf-repo-cdn.sigstore.dev`, but only when Cosign 2 verifies signatures or attestations stored as Sigstore bundles (Cosign 3's default format). Cosign 2 needs the Sigstore trusted root for bundles even with a key.
-- **Keyless signing and verification only** (`keyless: true`):
+- **Container registries** (`sign_image`, `attest`, `verify_image`, `verify_attestation`): every registry you sign or verify images in, including the hosts it sends clients to. A registry often issues tokens from a separate authentication host and serves layers from a storage or CDN host. Cosign, `crane` and `docker` all follow those redirects. For example:
+  - Docker Hub: `index.docker.io` / `registry-1.docker.io`, tokens from `auth.docker.io`, layers from `production.cloudflare.docker.com`.
+  - GitHub Container Registry: `ghcr.io`, layers from `pkg-containers.githubusercontent.com`.
+- **Signing and verifying with a private key**: nothing beyond the registries in most cases, because the transparency log is turned off. `sign_blob` and `verify_blob` need no network access at all. One exception: `tuf-repo-cdn.sigstore.dev` when Cosign 2 verifies signatures or attestations stored as Sigstore bundles (Cosign 3's default format). Cosign 2 needs the Sigstore trusted root for bundles even with a key.
+- **Keyless signing** (`sign_image`, `attest`, `sign_blob` with `keyless: true`):
   - `fulcio.sigstore.dev`, or your `fulcio_url`: short-lived signing certificates.
-  - `rekor.sigstore.dev`, or your `rekor_url`: transparency log uploads and lookups.
-  - `tuf-repo-cdn.sigstore.dev`: the Sigstore trusted root (Fulcio and Rekor public keys), fetched over TUF by Cosign 1, 2 and 3.
-  - `oidc.circleci.com` is the token issuer the scripts name, but the job never connects to it. The orb gets its token from the CircleCI job (`circleci run oidc get`) and hands it to Cosign, so Cosign skips its OIDC login flow. Fulcio, not the runner, fetches CircleCI's signing keys from this host. If you run your own Fulcio, that server needs access to it.
+  - `rekor.sigstore.dev`, or your `rekor_url`: transparency log uploads.
+  - `tuf-repo-cdn.sigstore.dev`: the Sigstore trusted root (Fulcio and Rekor public keys), fetched over TUF.
+- **Keyless verification** (`keyless: true`):
+  - `verify_image` and `verify_attestation`: `tuf-repo-cdn.sigstore.dev` only. Fulcio and Rekor are not contacted, because the certificate and the transparency log proof are stored with the signature in the registry and checked offline against the trusted root.
+  - `verify_blob`: `tuf-repo-cdn.sigstore.dev` and `rekor.sigstore.dev`. A blob's signature file carries no transparency log proof, so Cosign looks the entry up in Rekor.
+  - The verify commands have no `fulcio_url` or `rekor_url`. For a private Sigstore deployment, initialize Cosign's trust root from your own TUF mirror before verifying (for example `cosign initialize --mirror <url> --root <root.json>`), and allow that mirror instead. See [Sigstore's custom components guide](https://docs.sigstore.dev/cosign/system_config/custom_components/).
+- **`oidc.circleci.com`** is the token issuer the keyless scripts name, but the job never connects to it. The orb gets its token from the CircleCI job (`circleci run oidc get`) and hands it to Cosign, so Cosign skips its OIDC login flow. Fulcio, not the runner, fetches CircleCI's signing keys from this host. If you run your own Fulcio, that server needs access to it.
 
 ## 🧰 Available Commands
 
