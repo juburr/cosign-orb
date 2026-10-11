@@ -107,6 +107,63 @@ jobs:
           name: Verify install succeeded with strict checksums
           command: cosign version
 
+  # Test install command on an arm64 machine: the arm64 asset, its checksum
+  # and an arch-specific cache key, then a real sign/verify round trip.
+  test-install-arm64:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: arm.medium
+    steps:
+      - checkout
+      - run:
+          name: Prepare install path
+          command: |
+            mkdir -p /home/circleci/bin
+            echo 'export PATH="/home/circleci/bin:${PATH}"' >> "${BASH_ENV}"
+            command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
+            echo "uname -m: $(uname -m)"
+      - cosign-orb/install
+      - run:
+          name: Verify the arm64 build of Cosign v3.1.3 was installed
+          command: |
+            if [[ "$(uname -m)" != "aarch64" ]]; then
+              echo "ERROR: expected an aarch64 machine, got $(uname -m)"
+              exit 1
+            fi
+            file "$(command -v cosign)"
+            file "$(command -v cosign)" | grep -q "ARM aarch64"
+            VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+            echo "Installed version: ${VERSION}"
+            if [[ "${VERSION}" != "v3.1.3" ]]; then
+              echo "ERROR: Expected v3.1.3, got ${VERSION}"
+              exit 1
+            fi
+      - cosign-orb/generate_key_pair:
+          password: "test-password-arm64"
+      - run:
+          name: Create test blob file
+          command: |
+            # SECURITY: DO NOT include sensitive data in test files
+            echo "arm64 test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+      - cosign-orb/sign_blob:
+          blob: testblob.txt
+          signature_output: testblob.txt.sig
+      - cosign-orb/verify_blob:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+      - cosign-orb/install:
+          version: "2.6.5"
+      - run:
+          name: Verify the arm64 build of Cosign v2.6.5 was installed
+          command: |
+            file "$(command -v cosign)" | grep -q "ARM aarch64"
+            VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+            echo "Installed version: ${VERSION}"
+            if [[ "${VERSION}" != "v2.6.5" ]]; then
+              echo "ERROR: Expected v2.6.5, got ${VERSION}"
+              exit 1
+            fi
+
   # Integration test: sign and verify image with Cosign v3
   integration-test-v3:
     docker:
@@ -985,6 +1042,8 @@ workflows:
           filters: *filters
       - test-install-checksum-strict:
           filters: *filters
+      - test-install-arm64:
+          filters: *filters
 
       # OIDC check command test
       - test-check-oidc:
@@ -1044,6 +1103,7 @@ workflows:
             - test-install-v2
             - test-install-v1
             - test-install-checksum-strict
+            - test-install-arm64
             - integration-test-v3
             - integration-test-v2
             - integration-test-v1

@@ -40,6 +40,7 @@ Container image signing is a critical component of software supply chain securit
 - **SHA-512 checksum verification** - Every Cosign download is verified against known checksums
 - **Secure key handling** - Keys destroyed with `shred` after use, minimal file permissions (0400)
 - **No sudo required** - Installs to user-owned directories without elevated privileges
+- **amd64 and arm64** - Installs the Linux build matching the runner (`x86_64` or `aarch64`), each verified against its own checksum
 - **Secret hygiene** - Follows CircleCI's [security recommendations](https://circleci.com/docs/security-recommendations/) for handling sensitive data
 
 ### 🔒 Air-Gapped & Private Infrastructure
@@ -332,6 +333,10 @@ steps:
 
 ## ⬆️ Upgrade Notes
 
+### v0.10.0: arm64 support
+
+`install` now detects the runner's architecture and installs `cosign-linux-arm64` on `aarch64` machines, verified against a separate arm64 checksum table. The table covers Cosign 1.9.0 and later; older releases fail on arm64 under the default `strict` mode. Other architectures fail with an error instead of installing an amd64 binary. Cache keys now include the architecture, so the first run after upgrading downloads Cosign again.
+
 ### v0.10.0: checksum verification fails closed
 
 `install` now defaults to `verify_checksums: strict`. If you install a Cosign version that this orb has no SHA-512 checksum for, the step fails instead of installing an unverified binary. Earlier releases defaulted to `known_versions`, which printed a warning and installed it anyway.
@@ -351,7 +356,7 @@ Pipelines that use the orb's default Cosign version, or any version in the check
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `version` | string | `3.1.3` | Cosign version to install |
-| `caching` | boolean | `true` | Cache the Cosign binary between runs |
+| `caching` | boolean | `true` | Cache the Cosign binary between runs (the cache key includes the CPU architecture) |
 | `install_path` | string | `/home/circleci/bin` | Installation directory |
 | `verify_checksums` | enum | `strict` | Checksum verification mode: `strict` (fail unless the version's SHA-512 is in the orb's table and matches), `known_versions` (opt-out: install unlisted versions unverified), or `false` (opt-out: never verify) |
 
