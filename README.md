@@ -241,7 +241,7 @@ steps:
 With a private key, both formats skip the transparency log. On the verify commands, `bundle_format` names the format that must satisfy verification:
 
 - Cosign is limited to that format wherever it has a switch for it.
-- Two cases have no switch. Cosign 3 falls back to legacy objects when no bundle is attached, and Cosign 2.6.3+ switches to bundles whenever any are attached. In those cases the step verifies normally, then fails if objects in the other format also verify.
+- Two cases have no switch. Cosign 3 falls back to legacy objects when no bundle is attached, and Cosign 2.6.3+ switches to bundles whenever any are attached. In those cases the step verifies normally, then fails if objects in the other format also verify. If that second verification fails for any reason other than finding nothing that verifies (a registry or network error, for example), the step also fails, because the format cannot be confirmed.
 - With `auto`, Cosign 2.6.3+ and 3 prefer bundles when present. Earlier Cosign 2 releases only read legacy objects.
 
 **Choosing a format:**
