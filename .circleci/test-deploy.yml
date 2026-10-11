@@ -434,6 +434,146 @@ jobs:
             echo "Registry catalog: ${CATALOG}"
             echo "${CATALOG}" | jq -e '.repositories | sort == ["cosign-orb/digest-ref", "cosign-orb/tag-ref"]'
 
+  # Integration test: bundle_format pins the registry layout.
+  # Signs and attests one image with the requested format, checks exactly which
+  # objects the registry holds for it, then verifies with the same format.
+  integration-test-bundle-format:
+    parameters:
+      version:
+        type: string
+        description: Cosign version to install.
+      bundle_format:
+        type: enum
+        enum: ["bundle", "legacy"]
+        description: Signature storage format to pin.
+    machine:
+      image: ubuntu-2204:current
+    environment:
+      REGISTRY: localhost:5000
+      REPO: localhost:5000/cosign-orb/bundle-format
+    steps:
+      - checkout
+      - run:
+          name: Prepare install path and tools
+          command: |
+            mkdir -p /home/circleci/bin
+            echo 'export PATH="/home/circleci/bin:${PATH}"' >> "${BASH_ENV}"
+            command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
+      - run:
+          name: Install crane
+          command: |
+            CRANE_VERSION="0.20.2"
+            CRANE_SHA256="c14340087103ba9dadf61d45acd20675490fd0ccbd56ac7901fc1b502137f44b"
+            curl -fsSL -o crane.tar.gz \
+              "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+            echo "${CRANE_SHA256}  crane.tar.gz" | sha256sum -c -
+            tar -xzf crane.tar.gz -C /home/circleci/bin crane
+            rm crane.tar.gz
+      - run:
+          name: Start registry:2 on localhost:5000
+          command: |
+            # mirror.gcr.io serves the Docker Hub registry:2 image without Docker Hub's anonymous pull limits.
+            docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
+            for i in $(seq 1 30); do
+              curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
+              sleep 1
+            done
+            echo "ERROR: registry did not start"
+            docker logs registry
+            exit 1
+      - cosign-orb/install:
+          version: << parameters.version >>
+          caching: false
+      - cosign-orb/generate_key_pair:
+          password: "test-password-bundle-format"
+      - run:
+          name: Build and push test image
+          command: |
+            # SECURITY: DO NOT include sensitive data in test images.
+            # crane always pushes a single image manifest. docker build can push an image index,
+            # depending on the engine's image store, and Cosign 3.1.3 cannot verify bundles
+            # on a saved index offline (see README).
+            echo "bundle_format test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+            tar -cf layer.tar testfile.txt
+            crane append -f layer.tar -t "${REPO}:1.0"
+            DIGEST=$(crane digest "${REPO}:1.0")
+            echo "export SUBJECT='${REPO}@${DIGEST}'" >> "${BASH_ENV}"
+            echo "export SUBJECT_HEX='${DIGEST#sha256:}'" >> "${BASH_ENV}"
+            printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
+      - cosign-orb/sign_image:
+          image: ${SUBJECT}
+          bundle_format: << parameters.bundle_format >>
+      - cosign-orb/attest:
+          image: ${SUBJECT}
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+          bundle_format: << parameters.bundle_format >>
+      - run:
+          name: Check the registry layout
+          environment:
+            FORMAT: << parameters.bundle_format >>
+          command: |
+            TAGS=$(crane ls "${REPO}")
+            echo "Tags in ${REPO}:"
+            echo "${TAGS}"
+            has_tag() { printf '%s\n' "${TAGS}" | grep -qxF "$1"; }
+            if [[ "${FORMAT}" == "legacy" ]]; then
+              has_tag "sha256-${SUBJECT_HEX}.sig" || { echo "ERROR: missing .sig tag"; exit 1; }
+              has_tag "sha256-${SUBJECT_HEX}.att" || { echo "ERROR: missing .att tag"; exit 1; }
+              if has_tag "sha256-${SUBJECT_HEX}"; then
+                echo "ERROR: found a referrers index, so Sigstore bundles were written"
+                exit 1
+              fi
+              echo "Legacy layout confirmed: .sig and .att tags, no referrers."
+              exit 0
+            fi
+            if has_tag "sha256-${SUBJECT_HEX}.sig" || has_tag "sha256-${SUBJECT_HEX}.att"; then
+              echo "ERROR: found legacy .sig/.att tags"
+              exit 1
+            fi
+            # registry:2 has no referrers API, so referrers are listed in the sha256-<hex> index tag.
+            REFERRERS=$(crane manifest "${REPO}:sha256-${SUBJECT_HEX}" | jq -r '.manifests[].digest')
+            if [[ $(printf '%s\n' "${REFERRERS}" | wc -l) -ne 2 ]]; then
+              echo "ERROR: expected 2 referrers, found: ${REFERRERS}"
+              exit 1
+            fi
+            PREDICATES=""
+            for ref in ${REFERRERS}; do
+              MANIFEST=$(crane manifest "${REPO}@${ref}")
+              echo "${MANIFEST}" | jq -e '.artifactType == "application/vnd.dev.sigstore.bundle.v0.3+json"' > /dev/null || {
+                echo "ERROR: referrer ${ref} is not a Sigstore bundle"; echo "${MANIFEST}"; exit 1; }
+              echo "${MANIFEST}" | jq -e --arg d "sha256:${SUBJECT_HEX}" '.subject.digest == $d' > /dev/null || {
+                echo "ERROR: referrer ${ref} has the wrong subject"; exit 1; }
+              PREDICATES+="$(echo "${MANIFEST}" | jq -r '.annotations["dev.sigstore.bundle.predicateType"]')"$'\n'
+            done
+            echo "Bundle predicate types:"
+            echo "${PREDICATES}"
+            printf '%s' "${PREDICATES}" | grep -qxF "https://sigstore.dev/cosign/sign/v1" || { echo "ERROR: no signature bundle"; exit 1; }
+            printf '%s' "${PREDICATES}" | grep -qxF "https://slsa.dev/provenance/v0.2" || { echo "ERROR: no attestation bundle"; exit 1; }
+            echo "Bundle layout confirmed: one signature and one attestation referrer, no legacy tags."
+      - cosign-orb/verify_image:
+          image: ${SUBJECT}
+          bundle_format: << parameters.bundle_format >>
+      - cosign-orb/verify_attestation:
+          image: ${SUBJECT}
+          predicate_type: slsaprovenance
+          bundle_format: << parameters.bundle_format >>
+      # Offline verification of saved bundles needs Cosign 3; Cosign 2.6.5 cannot read them.
+      - when:
+          condition:
+            or:
+              - equal: ["3.1.3", << parameters.version >>]
+              - equal: [legacy, << parameters.bundle_format >>]
+          steps:
+            - run:
+                name: Verify offline from cosign save
+                command: |
+                  cosign save --dir saved "${SUBJECT}"
+                  printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > offline.pub
+                  cosign verify --private-infrastructure --key offline.pub --local-image saved
+                  cosign verify-attestation --private-infrastructure --type slsaprovenance --key offline.pub --local-image saved
+                  rm -f offline.pub
+
   # Integration test: sign and verify blob with Cosign v3
   integration-test-blob-v3:
     executor: docker-executor
@@ -1158,6 +1298,15 @@ workflows:
               version: ["3.1.3", "2.6.5", "1.13.6"]
           filters: *filters
 
+      # Signature storage format tests - bundle_format pins the registry layout
+      - integration-test-bundle-format:
+          name: integration-test-bundle-format-<< matrix.bundle_format >>-v<< matrix.version >>
+          matrix:
+            parameters:
+              version: ["3.1.3", "2.6.5"]
+              bundle_format: ["bundle", "legacy"]
+          filters: *filters
+
       # Blob integration tests - generate throwaway keys, no context needed
       - integration-test-blob-v3:
           filters: *filters
@@ -1208,6 +1357,7 @@ workflows:
             - integration-test-v2
             - integration-test-v1
             - integration-test-image-refs
+            - integration-test-bundle-format
             - integration-test-blob-v3
             - integration-test-blob-v2
             - integration-test-blob-v1

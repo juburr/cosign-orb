@@ -13,6 +13,10 @@ IMAGE=$(circleci env subst "${PARAM_IMAGE}")
 PREDICATE=$(circleci env subst "${PARAM_PREDICATE}")
 PREDICATE_TYPE=$(circleci env subst "${PARAM_PREDICATE_TYPE}")
 KEYLESS="${PARAM_KEYLESS:-0}"
+BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
+# Temporary signing config created by this script. Start empty so the cleanup
+# trap never removes a SIGNING_CONFIG path inherited from the job environment.
+SIGNING_CONFIG=""
 FULCIO_URL="${PARAM_FULCIO_URL:-https://fulcio.sigstore.dev}"
 REKOR_URL="${PARAM_REKOR_URL:-https://rekor.sigstore.dev}"
 
@@ -55,6 +59,9 @@ cleanup_secrets() {
     if [ -f cosign.key ]; then
         shred -vzuf -n 10 cosign.key 2> /dev/null || true
     fi
+    if [[ -n "${SIGNING_CONFIG:-}" ]]; then
+        rm -f "${SIGNING_CONFIG}"
+    fi
     unset PARAM_PRIVATE_KEY
     unset PARAM_PASSWORD
     unset COSIGN_PRIVATE_KEY
@@ -73,12 +80,25 @@ if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] 
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
-# Load the shared image reference helpers (src/scripts/lib/image_ref.sh).
-if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" ]]; then
-    echo "ERROR: The image reference helpers were not loaded. SCRIPT_IMAGE_REF_LIB is empty."
+# Load the shared helpers (src/scripts/lib/image_ref.sh and bundle_format.sh).
+if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" || -z "${SCRIPT_BUNDLE_FORMAT_LIB:-}" ]]; then
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_IMAGE_REF_LIB or SCRIPT_BUNDLE_FORMAT_LIB is empty."
     exit 1
 fi
 eval "${SCRIPT_IMAGE_REF_LIB}"
+eval "${SCRIPT_BUNDLE_FORMAT_LIB}"
+
+# Pick the attestation storage format flags before touching the registry.
+echo "Attestation storage format: ${BUNDLE_FORMAT}"
+if is_keyless_enabled; then
+    keyless_sign_flags "${COSIGN_MAJOR_VERSION}" attest "${BUNDLE_FORMAT}" || exit 1
+else
+    # Cosign 3 turns the transparency log off with an empty signing config (no Rekor, Fulcio or TSA).
+    SIGNING_CONFIG=$(mktemp)
+    printf '{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}\n' > "${SIGNING_CONFIG}"
+    private_key_sign_flags "${COSIGN_MAJOR_VERSION}" attest "${BUNDLE_FORMAT}" "${SIGNING_CONFIG}" || exit 1
+fi
+echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 
 # Determine the image digest
 echo "Determining image URI digest..."
@@ -139,6 +159,7 @@ if is_keyless_enabled; then
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
             --identity-token="${SIGSTORE_ID_TOKEN}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             -y \
             "${IMAGE_URI_DIGEST}"
     elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
@@ -149,6 +170,7 @@ if is_keyless_enabled; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             --yes \
             "${IMAGE_URI_DIGEST}"
     else
@@ -159,6 +181,7 @@ if is_keyless_enabled; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
+            "${BUNDLE_FORMAT_FLAGS[@]}" \
             --yes \
             --use-signing-config=false \
             "${IMAGE_URI_DIGEST}"
@@ -200,37 +223,17 @@ echo "Wrote private key: cosign.key"
 chmod 0400 cosign.key
 echo "Set private key permissions: 0400"
 
-# Attest the image using its digest
+# Attest the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log.
 echo "Attesting ${IMAGE_URI_DIGEST}..."
 echo "  Predicate: ${PREDICATE}"
 echo "  Predicate Type: ${PREDICATE_TYPE}"
-if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign attest \
-        --predicate "${PREDICATE}" \
-        --type "${PREDICATE_TYPE}" \
-        --key cosign.key \
-        --no-tlog-upload \
-        "${IMAGE_URI_DIGEST}"
-elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
-    cosign attest \
-        --predicate "${PREDICATE}" \
-        --type "${PREDICATE_TYPE}" \
-        --key cosign.key \
-        --tlog-upload=false \
-        "${IMAGE_URI_DIGEST}"
-else
-    # Cosign v3: Create an empty signing config for private infrastructure (no Rekor, Fulcio, TSA)
-    # This is the non-deprecated approach, replacing --tlog-upload=false
-    SIGNING_CONFIG=$(mktemp)
-    printf '{"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}\n' > "${SIGNING_CONFIG}"
-    cosign attest \
-        --predicate "${PREDICATE}" \
-        --type "${PREDICATE_TYPE}" \
-        --key cosign.key \
-        --signing-config="${SIGNING_CONFIG}" \
-        "${IMAGE_URI_DIGEST}"
-    rm -f "${SIGNING_CONFIG}"
-fi
+cosign attest \
+    --predicate "${PREDICATE}" \
+    --type "${PREDICATE_TYPE}" \
+    --key cosign.key \
+    "${BUNDLE_FORMAT_FLAGS[@]}" \
+    "${IMAGE_URI_DIGEST}"
+rm -f "${SIGNING_CONFIG}"
 
 echo ""
 echo "=== Private Key Attestation Complete ==="

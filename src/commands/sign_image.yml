@@ -39,6 +39,16 @@ parameters:
       OIDC issuer URL (for private Fulcio instances only).
       When using the public Sigstore infrastructure, this is automatically set to CircleCI's issuer.
     default: ""
+  bundle_format:
+    type: enum
+    enum: ["auto", "bundle", "legacy"]
+    default: auto
+    description: |
+      How the signature is stored in the registry. Set this to pin the layout so a Cosign upgrade cannot change it.
+      auto: no format flags; Cosign's own default (legacy for Cosign 1 and 2, bundle for Cosign 3).
+      bundle: a Sigstore bundle stored as an OCI 1.1 referrer of the subject. Needs Cosign 2.6.0+ for sign_image, 2.5.0+ for attest.
+      legacy: a sha256-<hex>.sig / .att image tag next to the subject. Deprecated by Cosign 3 and planned for removal in Cosign 4.
+      With keyless signing, only auto and the Cosign major's own default are supported.
 steps:
   - run:
       name: Sign image
@@ -52,4 +62,6 @@ steps:
         PARAM_REKOR_URL: << parameters.rekor_url >>
         PARAM_OIDC_ISSUER: << parameters.oidc_issuer >>
         SCRIPT_IMAGE_REF_LIB: << include(scripts/lib/image_ref.sh) >>
+        PARAM_BUNDLE_FORMAT: << parameters.bundle_format >>
+        SCRIPT_BUNDLE_FORMAT_LIB: << include(scripts/lib/bundle_format.sh) >>
       command: << include(scripts/sign_image.sh) >>
