@@ -49,6 +49,29 @@ cosign_has_bundle_flag() {
     return 1
 }
 
+# Returns 0 when VERSION (for example 2.6.5 or 2.6.5-rc.1) is at least MINIMUM.
+# An unparsable VERSION returns 0, so callers take the stricter path.
+cosign_version_at_least() {
+    local version="${1%%[-+]*}"
+    local minimum="$2"
+    local v_major v_minor v_patch m_major m_minor m_patch
+
+    if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 0
+    fi
+    IFS=. read -r v_major v_minor v_patch <<< "${version}"
+    IFS=. read -r m_major m_minor m_patch <<< "${minimum}"
+    if (( v_major != m_major )); then
+        (( v_major > m_major ))
+        return
+    fi
+    if (( v_minor != m_minor )); then
+        (( v_minor > m_minor ))
+        return
+    fi
+    (( v_patch >= m_patch ))
+}
+
 # Flags for cosign sign or attest with a private key and no transparency log.
 # signing_config is the empty signing config file Cosign 3 uses for that.
 private_key_sign_flags() {
@@ -143,7 +166,7 @@ keyless_sign_flags() {
 #   - Cosign 3 falls back to legacy objects when no bundle is attached, even
 #     with --new-bundle-format=true.
 #   - Cosign 2.6.3 and later switch to bundles whenever any are attached, even
-#     with --new-bundle-format=false.
+#     with --new-bundle-format=false. Earlier releases honor the flag.
 # There, BUNDLE_FORMAT_COUNTER_FLAGS limits a second verification to the other
 # format. The caller must fail if that second verification succeeds, because
 # Cosign may then have used those objects for the first one.
@@ -151,6 +174,7 @@ verify_format_flags() {
     local major="$1"
     local subcommand="$2"
     local format="$3"
+    local version="${4:-}"
     local capability="${subcommand}"
 
     BUNDLE_FORMAT_FLAGS=()
@@ -187,7 +211,9 @@ verify_format_flags() {
                 BUNDLE_FORMAT_FLAGS=(--new-bundle-format=true)
             else
                 BUNDLE_FORMAT_FLAGS=(--new-bundle-format=false)
-                BUNDLE_FORMAT_COUNTER_FLAGS=(--new-bundle-format=true)
+                if cosign_version_at_least "${version}" 2.6.3; then
+                    BUNDLE_FORMAT_COUNTER_FLAGS=(--new-bundle-format=true)
+                fi
             fi
             ;;
         3)
@@ -206,15 +232,22 @@ verify_format_flags() {
     return 0
 }
 
+# Cosign errors that mean nothing in the requested format verified, as
+# opposed to a registry, network or trust material failure.
+BUNDLE_FORMAT_NOT_VERIFIED_PATTERN='no signatures found|no matching signatures|no matching attestations|no valid bundles exist in registry'
+
 # Runs the second verification described above when one is needed. Pass the
 # cosign command without the image, then the image as the last argument.
-# Returns non-zero when objects in the other format verify.
+# Returns non-zero when objects in the other format verify, or when the
+# second verification fails for any reason other than finding nothing that
+# verifies: the result is then unknown, so the step fails closed.
 check_other_format_does_not_verify() {
     local format="$1"
     shift
     local image="${!#}"
     local args=("${@:1:$#-1}")
     local other="legacy .sig/.att objects"
+    local err_file
 
     if [[ ${#BUNDLE_FORMAT_COUNTER_FLAGS[@]} -eq 0 ]]; then
         return 0
@@ -224,11 +257,20 @@ check_other_format_does_not_verify() {
     fi
 
     bundle_format_log "Checking that no ${other} verify for ${image}, since Cosign cannot be limited to ${format} objects here..."
-    if "${args[@]}" "${BUNDLE_FORMAT_COUNTER_FLAGS[@]}" "${image}" > /dev/null 2>&1; then
+    err_file="$(mktemp)"
+    if "${args[@]}" "${BUNDLE_FORMAT_COUNTER_FLAGS[@]}" "${image}" > /dev/null 2> "${err_file}"; then
+        rm -f "${err_file}"
         bundle_format_log "ERROR: ${other} also verify for ${image}, so Cosign may not have used ${format} objects."
         bundle_format_log "The subject has signatures or attestations in both formats. Use bundle_format auto to accept either."
         return 1
     fi
+    if ! grep -qE "${BUNDLE_FORMAT_NOT_VERIFIED_PATTERN}" "${err_file}"; then
+        bundle_format_log "ERROR: Could not check whether ${other} verify for ${image}:"
+        cat "${err_file}" >&2
+        rm -f "${err_file}"
+        return 1
+    fi
+    rm -f "${err_file}"
     bundle_format_log "  None verify. The result came from ${format} objects."
     return 0
 }

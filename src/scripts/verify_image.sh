@@ -51,7 +51,7 @@ fi
 eval "${SCRIPT_BUNDLE_FORMAT_LIB}"
 
 echo "Expected signature storage format: ${BUNDLE_FORMAT}"
-verify_format_flags "${COSIGN_MAJOR_VERSION}" verify "${BUNDLE_FORMAT}" || exit 1
+verify_format_flags "${COSIGN_MAJOR_VERSION}" verify "${BUNDLE_FORMAT}" "${COSIGN_VERSION}" || exit 1
 echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 
 # ==============================================================================

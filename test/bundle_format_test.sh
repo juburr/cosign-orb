@@ -17,8 +17,8 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 # A cosign stub. --help prints the flag when COSIGN_HAS_FLAG=1, or when the
-# subcommand is listed in COSIGN_FLAG_ON. Any other call is logged and exits
-# with COSIGN_VERIFY_EXIT.
+# subcommand is listed in COSIGN_FLAG_ON. Any other call is logged, prints
+# COSIGN_VERIFY_STDERR and exits with COSIGN_VERIFY_EXIT.
 mkdir -p "${TMP}/bin"
 cat > "${TMP}/bin/cosign" << 'EOF'
 #!/usr/bin/env bash
@@ -30,6 +30,7 @@ if [[ "${2:-}" == "--help" ]]; then
   exit 0
 fi
 printf '%s\n' "$*" >> "$COSIGN_LOG"
+printf '%s\n' "${COSIGN_VERIFY_STDERR-Error: no signatures found}" >&2
 exit "${COSIGN_VERIFY_EXIT:-1}"
 EOF
 chmod +x "${TMP}/bin/cosign"
@@ -121,6 +122,10 @@ run_verify_flag_cases() {
   expect "verify old v2 bundle is refused" "1||" 0 verify_format_flags 2 verify bundle
   expect "verify v2 bundle is enforced by Cosign" "0|--new-bundle-format=true|" 1 verify_format_flags 2 verify bundle
   expect "verify v2 legacy needs a second check" "0|--new-bundle-format=false|--new-bundle-format=true" 1 verify_format_flags 2 verify-attestation legacy
+  expect "verify 2.6.3 legacy needs a second check" "0|--new-bundle-format=false|--new-bundle-format=true" 1 verify_format_flags 2 verify legacy 2.6.3
+  expect "verify 2.6.5 legacy needs a second check" "0|--new-bundle-format=false|--new-bundle-format=true" 1 verify_format_flags 2 verify-attestation legacy 2.6.5
+  expect "verify 2.6.2 legacy is enforced by Cosign" "0|--new-bundle-format=false|" 1 verify_format_flags 2 verify legacy 2.6.2
+  expect "verify 2.6.0 legacy is enforced by Cosign" "0|--new-bundle-format=false|" 1 verify_format_flags 2 verify-attestation legacy 2.6.0
   expect "verify v3 legacy is enforced by Cosign" "0|--new-bundle-format=false|" 0 verify_format_flags 3 verify legacy
   expect "verify v3 bundle needs a second check" "0|--new-bundle-format=true|--new-bundle-format=false" 0 verify_format_flags 3 verify-attestation bundle
 
@@ -130,6 +135,7 @@ run_verify_flag_cases() {
   expect "verify 2.5.x image signature bundle is refused" "1||" 0 verify_format_flags 2 verify bundle
   expect "verify 2.5.x image signature legacy" "0||" 0 verify_format_flags 2 verify legacy
   expect "verify 2.5.x attestation bundle" "0|--new-bundle-format=true|" 0 verify_format_flags 2 verify-attestation bundle
+  expect "verify 2.5.x attestation legacy is enforced by Cosign" "0|--new-bundle-format=false|" 0 verify_format_flags 2 verify-attestation legacy 2.5.3
   expect "sign 2.5.x bundle is refused" "1|--tlog-upload=false|" 0 private_key_sign_flags 2 sign bundle "$SC"
   expect "attest 2.5.x bundle" "0|--tlog-upload=false --new-bundle-format=true|" 0 private_key_sign_flags 2 attest bundle "$SC"
   unset COSIGN_FLAG_ON
@@ -181,7 +187,116 @@ run_counter_check_cases() {
   fi
 }
 
+run_version_cases() {
+  check_version() {
+    local version="$1" minimum="$2" want="$3" got
+    if bash -c 'eval "$(cat "$1")"; cosign_version_at_least "$2" "$3"' _ "$LIB" "$version" "$minimum"; then
+      got=yes
+    else
+      got=no
+    fi
+    if [[ "$got" == "$want" ]]; then
+      pass_case "version ${version} >= ${minimum}: ${want}"
+    else
+      fail_case "version ${version} >= ${minimum}: got ${got}, wanted ${want}"
+    fi
+  }
+  check_version 2.6.3 2.6.3 yes
+  check_version 2.6.10 2.6.3 yes
+  check_version 2.6.2 2.6.3 no
+  check_version 2.5.9 2.6.3 no
+  check_version 3.0.1 2.6.3 yes
+  check_version 1.13.6 2.6.3 no
+  check_version 2.6.3-rc.1 2.6.3 yes
+  check_version garbage 2.6.3 yes
+  check_version "" 2.6.3 yes
+}
+
+# The second verification must only pass on Cosign's "nothing verified"
+# errors. Anything else leaves the format unknown and must fail.
+run_counter_error_cases() {
+  classify() {
+    local name="$1" stderr="$2" want="$3"
+    set +e
+    PATH="${TMP}/bin:${PATH}" COSIGN_VERIFY_EXIT=1 COSIGN_VERIFY_STDERR="$stderr" bash -c '
+      eval "$(cat "$1")"
+      verify_format_flags 3 verify bundle
+      check_other_format_does_not_verify bundle cosign verify --key cosign.pub "registry.local:5000/app@sha256:abc"
+    ' _ "$LIB" > /dev/null 2>&1
+    local status=$?
+    set -e
+    if [[ "$want" == "pass" && "$status" -eq 0 ]] || [[ "$want" == "fail" && "$status" -ne 0 ]]; then
+      pass_case "second verification: ${name}"
+    else
+      fail_case "second verification: ${name}: exit ${status}, wanted ${want}"
+    fi
+  }
+  classify "no signatures found" "Error: no signatures found" pass
+  classify "no matching signatures" "Error: no matching signatures: invalid signature when validating ASN.1 encoded signature" pass
+  classify "no matching attestations" "Error: no matching attestations: " pass
+  classify "no valid bundles" "Error: no valid bundles exist in registry" pass
+  classify "registry unreachable" 'Error: Get "https://registry.local:5000/v2/": dial tcp 10.0.0.1:5000: connect: connection refused' fail
+  classify "authentication failure" "Error: GET https://registry.local:5000/v2/app/manifests/sha256-abc.sig: UNAUTHORIZED: authentication required" fail
+  classify "trust material lookup" "Error: unable to fetch trusted root: tuf-repo-cdn.sigstore.dev: timeout" fail
+  classify "no output" "" fail
+}
+
+# sign_image and attest create a temporary signing config. Their cleanup must
+# never delete a SIGNING_CONFIG path inherited from the job environment.
+run_signing_config_cleanup_cases() {
+  local stub="${TMP}/cleanup-bin" user_config="${TMP}/user-signing-config.json" tmp_dir script keyless
+  mkdir -p "$stub"
+  cat > "${stub}/cosign" << 'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "version" ]]; then
+  printf '{"gitVersion":"v3.1.3"}\n'
+  exit 0
+fi
+exit 1
+EOF
+  cat > "${stub}/circleci" << 'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "env" && "${2:-}" == "subst" ]]; then
+  printf '%s\n' "${3-}"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "${stub}/cosign" "${stub}/circleci"
+
+  for script in sign_image attest; do
+    for keyless in 1 0; do
+      printf '{"user":"config"}\n' > "$user_config"
+      tmp_dir="$(mktemp -d "${TMP}/tmpdir.XXXXXX")"
+      set +e
+      # No crane or docker on PATH, so digest resolution fails and the
+      # script exits through its cleanup trap.
+      (
+        cd "$TMP"
+        PATH="${stub}:/usr/bin:/bin" TMPDIR="$tmp_dir" SIGNING_CONFIG="$user_config" \
+          PARAM_IMAGE="registry.local:5000/app:1.0" PARAM_KEYLESS="$keyless" PARAM_BUNDLE_FORMAT=auto \
+          PARAM_PREDICATE=predicate.json PARAM_PREDICATE_TYPE=slsaprovenance PARAM_ANNOTATIONS="" \
+          PARAM_PRIVATE_KEY=TEST_KEY PARAM_PASSWORD=TEST_PASSWORD TEST_KEY=dGVzdA== TEST_PASSWORD=pw \
+          SCRIPT_IMAGE_REF_LIB="$(cat "${ROOT}/src/scripts/lib/image_ref.sh")" \
+          SCRIPT_BUNDLE_FORMAT_LIB="$(cat "$LIB")" \
+          bash "${ROOT}/src/scripts/${script}.sh" > /dev/null 2>&1
+      )
+      set -e
+      if [[ ! -f "$user_config" ]]; then
+        fail_case "${script} keyless=${keyless}: deleted the inherited SIGNING_CONFIG file"
+      elif [[ -n "$(ls -A "$tmp_dir")" ]]; then
+        fail_case "${script} keyless=${keyless}: left temporary files: $(ls -A "$tmp_dir")"
+      else
+        pass_case "${script} keyless=${keyless}: keeps the inherited SIGNING_CONFIG and removes its own"
+      fi
+    done
+  done
+}
+
 main() {
+  run_version_cases
+  run_counter_error_cases
+  run_signing_config_cleanup_cases
   run_private_key_cases
   run_keyless_cases
   run_verify_flag_cases

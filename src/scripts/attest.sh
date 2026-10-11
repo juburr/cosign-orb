@@ -14,6 +14,9 @@ PREDICATE=$(circleci env subst "${PARAM_PREDICATE}")
 PREDICATE_TYPE=$(circleci env subst "${PARAM_PREDICATE_TYPE}")
 KEYLESS="${PARAM_KEYLESS:-0}"
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
+# Temporary signing config created by this script. Start empty so the cleanup
+# trap never removes a SIGNING_CONFIG path inherited from the job environment.
+SIGNING_CONFIG=""
 FULCIO_URL="${PARAM_FULCIO_URL:-https://fulcio.sigstore.dev}"
 REKOR_URL="${PARAM_REKOR_URL:-https://rekor.sigstore.dev}"
 
