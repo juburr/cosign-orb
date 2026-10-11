@@ -58,6 +58,24 @@ Container image signing is a critical component of software supply chain securit
 - **Fully open source** - Complete transparency into orb behavior
 - **Your data stays yours** - All operations happen within your CircleCI environment
 
+## 🔐 Info for Security Teams
+
+Required external access to allow, if running a locked down, self-hosted CircleCI pipeline on-prem:
+
+- **Installing Cosign** (`install`):
+  - `github.com`: Cosign release downloads from `https://github.com/sigstore/cosign/releases`.
+  - `release-assets.githubusercontent.com`: GitHub redirects release downloads here.
+  - `objects.githubusercontent.com`: GitHub's earlier redirect target for release downloads. Allow it as well, because GitHub has used both.
+- **Signing and verifying with a private key** (`sign_image`, `attest`, `verify_image`, `verify_attestation`, `sign_blob`, `verify_blob`):
+  - Your container registries, for the image commands. `crane` or `docker`, which the orb uses to read digests, also contact only those registries.
+  - Nothing else in most cases, because the transparency log is turned off.
+  - `tuf-repo-cdn.sigstore.dev`, but only when Cosign 2 verifies signatures or attestations stored as Sigstore bundles (Cosign 3's default format). Cosign 2 needs the Sigstore trusted root for bundles even with a key.
+- **Keyless signing and verification only** (`keyless: true`):
+  - `fulcio.sigstore.dev`, or your `fulcio_url`: short-lived signing certificates.
+  - `rekor.sigstore.dev`, or your `rekor_url`: transparency log uploads and lookups.
+  - `tuf-repo-cdn.sigstore.dev`: the Sigstore trusted root (Fulcio and Rekor public keys), fetched over TUF by Cosign 1, 2 and 3.
+  - `oidc.circleci.com` is the token issuer the scripts name, but the job never connects to it. The orb gets its token from the CircleCI job (`circleci run oidc get`) and hands it to Cosign, so Cosign skips its OIDC login flow. Fulcio, not the runner, fetches CircleCI's signing keys from this host. If you run your own Fulcio, that server needs access to it.
+
 ## 🧰 Available Commands
 
 | Command | Description |
