@@ -77,9 +77,9 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 
 ### Checksum Verification
 
-`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for published Cosign releases. Three verification modes:
-- `strict`: Fails if version not in lookup table
-- `known_versions` (default): Warns but allows unknown versions
+`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for published Cosign releases, keyed by `"<version>/<arch>"` (`amd64` or `arm64`, detected from `uname -m`). `src/scripts/install_hash.sh` prints new entries for both architectures after verifying each release binary's keyless signature. Three verification modes:
+- `strict` (default): Fails if version not in lookup table
+- `known_versions`: Warns but installs an unverified binary for unknown versions
 - `false`: Skips verification (not recommended)
 
 ### Security Patterns

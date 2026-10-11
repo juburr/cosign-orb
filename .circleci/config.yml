@@ -33,6 +33,14 @@ jobs:
       - run:
           name: Run verify_image signature tests
           command: bash test/verify_image_test.sh
+  test-install:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run install checksum tests
+          command: bash test/install_test.sh
 
 workflows:
   lint-pack:
@@ -42,6 +50,8 @@ workflows:
       - test-bundle-format:
           filters: *filters
       - test-verify-image:
+          filters: *filters
+      - test-install:
           filters: *filters
       - orb-tools/lint:
           filters: *filters
@@ -56,5 +66,5 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: cosign-orb
-          requires: [test-image-ref, test-bundle-format, test-verify-image, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires: [test-image-ref, test-bundle-format, test-verify-image, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
           filters: *filters
