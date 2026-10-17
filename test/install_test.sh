@@ -15,7 +15,8 @@
 #   - known_versions and false install unlisted versions, with a warning
 #   - a listed version is installed only when its checksum matches, in
 #     strict and known_versions mode alike
-#   - uname -m picks the amd64 or arm64 release; other platforms fail
+#   - uname -m picks the amd64 or arm64 release (a noarch release installs
+#     on any CPU); other CPUs and non-Linux systems fail
 #   - downloads fall back to the next URL, and work with wget alone or an
 #     old curl
 #   - install_path expands variables and ~/, defaults under HOME, must be
@@ -638,9 +639,9 @@ check "saying it would split the PATH entry" said "can't contain ':'"
 check "nothing is downloaded" no_downloads
 
 if [[ "${ARCHES}" == "noarch" ]]; then
-    begin "an architecture-independent release installs on any platform"
+    begin "an architecture-independent release installs on any CPU"
     new_case
-    run_install FAKE_OS=Darwin FAKE_ARCH=s390x
+    run_install FAKE_ARCH=s390x
     check "succeeds" succeeded
     check "downloads the noarch asset" downloaded "$(url "${LISTED}" noarch)"
 else
@@ -656,11 +657,14 @@ else
     run_install FAKE_ARCH=s390x
     check "an unsupported architecture is rejected" failed
     check "nothing is downloaded for it" no_downloads
-    new_case
-    run_install FAKE_OS=Darwin
-    check "a non-Linux system is rejected" failed
-    check "nothing is downloaded for it" no_downloads
 fi
+
+begin "only Linux is supported"
+new_case
+run_install FAKE_OS=Darwin
+check "a non-Linux system is rejected" failed
+check "saying it installs Linux builds" said "installs Linux builds"
+check "nothing is downloaded for it" no_downloads
 
 begin "downloads"
 if [[ "${URL_COUNT}" -gt 1 ]]; then

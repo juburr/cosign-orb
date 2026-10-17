@@ -142,13 +142,13 @@ orb_detect_arch() {
     local os machine
     os=$(uname -s)
     machine=$(uname -m)
+    if [[ "${os}" != "Linux" ]]; then
+        orb_die "This orb installs Linux builds of ${TOOL_NAME}, but this machine runs ${os}."
+    fi
     if [[ "${TOOL_ARCHES}" == "noarch" ]]; then
         ORB_ARCH="noarch"
         orb_info "  platform:         noarch (${os} ${machine})"
         return 0
-    fi
-    if [[ "${os}" != "Linux" ]]; then
-        orb_die "This orb installs Linux builds of ${TOOL_NAME}, but this machine runs ${os}."
     fi
     case "${machine}" in
         x86_64 | amd64) ORB_ARCH="amd64" ;;
