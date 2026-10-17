@@ -21,10 +21,14 @@
 #   - install_path expands variables and ~/, defaults under HOME, must be
 #     absolute, and is added to the PATH of later steps only when it isn't
 #     already there; another copy earlier on the PATH is reported
+#   - the cache key file names the CPU, HOME and the expanded version, and
+#     a file planted at its path is never written through
 #   - only verified releases are cached, a cached release is verified again,
-#     and the cache isn't read when there is nothing to verify against
+#     an unreadable one is downloaded again, and the cache isn't read when
+#     there is nothing to verify against
+#   - an empty download is refused even when nothing is verified
 #   - a binary that cannot run, crashes, or fails its version command fails
-#     the install
+#     the install, before it replaces an existing install or touches the PATH
 #   - nothing is left in the working directory or TMPDIR
 #
 # Downloads, uname and the circleci CLI are stubbed, so no network is needed.
@@ -467,14 +471,53 @@ for param in caching install_path verify_checksums version; do
     check "passes ${param} to install.sh" said "PARAM_${param^^}: << parameters.${param} >>"
 done
 check "runs install.sh" said "command: << include(scripts/install.sh) >>"
-check "writes the cache key file from the CPU and HOME" said "command: echo \"\$(uname -m) \${HOME}\" > /tmp/${ORB_NAME}-cache-key"
+check "writes the cache key file with cache_key.sh" said "command: << include(scripts/cache_key.sh) >>"
+check "to /tmp/${ORB_NAME}-cache-key" said "ORB_CACHE_KEY_FILE: /tmp/${ORB_NAME}-cache-key"
 KEYS=$(grep -E '^ +key: ' "${INSTALL_YML}" | sed -E 's/^ +key: //' | sort -u)
 OUTPUT="cache keys: ${KEYS}"
 check "restores and saves the same cache key" test "$(wc -l <<< "${KEYS}")" -eq 1
-check "made of the orb, a cache version, the version, the architecture and HOME" \
+check "made of the orb, a cache version, the version and the cache key file" \
     grep -qxE "${ORB_NAME}-v[0-9]+-<< parameters\.version >>-\{\{ checksum \"/tmp/${ORB_NAME}-cache-key\" \}\}" <<< "${KEYS}"
 OUTPUT=$(cat "${INSTALL_YML}")
 check "saves the directory install.sh caches in" grep -qE "^ +- ~/\.cache/${ORB_NAME}\$" "${INSTALL_YML}"
+
+begin "the cache key file"
+# key_file VERSION [VAR=value ...]: prints the file cache_key.sh writes.
+key_file() {
+    local version=$1
+    shift
+    env HOME="${WORK}/key-home" PATH="${STUBS}:${PATH}" FAKE_ARCH=x86_64 ORB_CACHE_KEY_FILE="${WORK}/cache-key" \
+        PARAM_VERSION="${version}" "$@" bash "${ROOT}/src/scripts/cache_key.sh" && cat "${WORK}/cache-key"
+}
+# shellcheck disable=SC2016 # expanded by cache_key.sh
+OUTPUT=$(key_file '${ORB_TEST_VERSION}' ORB_TEST_VERSION=1.2.3)
+check "names the CPU, HOME and the version with variables expanded" \
+    test "${OUTPUT}" = "$(printf 'x86_64\n%s\n1.2.3' "${WORK}/key-home")"
+# shellcheck disable=SC2016 # expanded by cache_key.sh
+check "changes with the value of a variable in the version" \
+    test "$(key_file '${ORB_TEST_VERSION}' ORB_TEST_VERSION=1.2.4)" != "${OUTPUT}"
+# shellcheck disable=SC2016 # expanded by cache_key.sh
+check "ignores a leading v, as install.sh does" test "$(key_file 'v${ORB_TEST_VERSION}' ORB_TEST_VERSION=1.2.3)" = "${OUTPUT}"
+check "changes with the CPU" test "$(key_file 1.2.3 FAKE_ARCH=aarch64)" != "$(key_file 1.2.3)"
+check "changes with HOME" test "$(key_file 1.2.3 HOME=/elsewhere)" != "$(key_file 1.2.3)"
+# Under set -u, as a job shell may run it, a missing HOME must not abort it.
+OUTPUT=$(env -u HOME PATH="${STUBS}:${PATH}" FAKE_ARCH=x86_64 ORB_CACHE_KEY_FILE="${WORK}/cache-key" \
+    PARAM_VERSION=1.2.3 bash -u "${ROOT}/src/scripts/cache_key.sh" 2>&1 && cat "${WORK}/cache-key")
+check "works without HOME, leaving it empty" test "${OUTPUT}" = "$(printf 'x86_64\n\n1.2.3')"
+# Someone else may have left a file at the key file's path in a shared /tmp.
+printf 'untouched\n' > "${WORK}/key-victim"
+rm -f "${WORK}/cache-key"
+ln -s "${WORK}/key-victim" "${WORK}/cache-key"
+OUTPUT=$(key_file 1.2.3 2>&1)
+check "replaces a symlink at its path instead of writing through it" grep -qx untouched "${WORK}/key-victim"
+check "and writes the key file in its place" test -f "${WORK}/cache-key" -a ! -L "${WORK}/cache-key"
+rm -f "${WORK}/cache-key"
+mkdir "${WORK}/cache-key"
+RC=0
+OUTPUT=$(key_file 1.2.3 2>&1) || RC=$?
+check "refuses a directory at its path" failed
+check "leaves no temporary file" test -z "$(find "${WORK}" -maxdepth 1 -name 'cache-key.*')"
+rmdir "${WORK}/cache-key"
 
 begin "a listed version installs after verification"
 new_case
@@ -529,8 +572,35 @@ for mode in strict known_versions; do
     check "${mode}: fails" failed
     check "${mode}: reports the mismatch" said "Checksum verification failed."
     check "${mode}: installs nothing" not_installed
+    check "${mode}: doesn't add install_path to the PATH" path_not_exported
     check "${mode}: caches nothing" no_cache
     check "${mode}: leaves no temporary files" clean_tmp
+done
+
+begin "an empty download is refused when there is no checksum"
+# Served from a directory of their own, since the unlisted version's URL
+# already serves a working binary.
+EMPTY_SERVE="${WORK}/serve-empty"
+EMPTY_MEMBER_SERVE="${WORK}/serve-empty-member"
+mkdir "${EMPTY_SERVE}" "${EMPTY_MEMBER_SERVE}"
+: > "${WORK}/empty"
+EMPTY_KEY=$(printf '%s' "$(url "${UNLISTED}" "${DEFAULT_ARCH}")" | sha256sum | cut -c1-32)
+: > "${EMPTY_SERVE}/${EMPTY_KEY}"
+fixture_make_asset "${UNLISTED}" "${DEFAULT_ARCH}" "${EMPTY_MEMBER_SERVE}/${EMPTY_KEY}" "${WORK}/empty" > /dev/null
+for mode in known_versions false; do
+    new_case
+    run_install SERVE_DIR="${EMPTY_SERVE}" PARAM_VERSION="${UNLISTED}" PARAM_VERIFY_CHECKSUMS="${mode}"
+    check "${mode}: an empty download fails" failed
+    check "${mode}: and installs nothing" not_installed
+    if [[ -z "$(tool_archive_member "${UNLISTED}" "${DEFAULT_ARCH}")" ]]; then
+        check "${mode}: saying it is empty" said "is empty"
+    else
+        new_case
+        run_install SERVE_DIR="${EMPTY_MEMBER_SERVE}" PARAM_VERSION="${UNLISTED}" PARAM_VERIFY_CHECKSUMS="${mode}"
+        check "${mode}: an archive holding an empty binary fails" failed
+        check "${mode}: saying it is empty" said "is empty"
+        check "${mode}: and installs nothing" not_installed
+    fi
 done
 
 begin "the real table is used: the default version doesn't match a stand-in"
@@ -704,6 +774,16 @@ check "warns about it" said "failed verification. Discarding it"
 check "and explains that later jobs will restore it too" said "can't replace a saved cache"
 check "downloads the asset again" downloaded "$(url "${LISTED}" "${DEFAULT_ARCH}")"
 check "replaces the cached asset" cmp -s "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")" "$(served_file "${LISTED}" "${DEFAULT_ARCH}")"
+# Root reads any file, so this runs only as another user, as on CircleCI.
+if [[ "$(id -u)" -ne 0 ]]; then
+    new_case
+    run_install PARAM_CACHING=true
+    chmod 000 "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")"
+    uninstall
+    run_install PARAM_CACHING=true
+    check "an unreadable cached asset is downloaded instead" installed
+    check "with a warning" said "Could not read the cached"
+fi
 new_case
 run_install PARAM_CACHING=true PARAM_VERSION="${UNLISTED}" PARAM_VERIFY_CHECKSUMS=known_versions
 check "an unverified asset installs" installed
@@ -724,6 +804,13 @@ if declare -F tool_version > /dev/null; then
     run_install PARAM_VERSION="${BROKEN}"
     check "fails" failed
     check "says it cannot run" said "cannot run on this machine"
+    check "installs nothing" not_installed
+    check "doesn't add install_path to the PATH" path_not_exported
+    check "leaves no temporary files beside install_path" no_stray_temp
+    new_case
+    run_install
+    run_install PARAM_VERSION="${BROKEN}"
+    check "an existing install is left in place" installed
     new_case
     run_install PARAM_VERSION="${FAILING}" ORB_TEST_CRASH=1
     check "a binary that crashes (SIGSEGV) fails the install" failed

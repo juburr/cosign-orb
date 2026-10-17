@@ -38,14 +38,16 @@ steps:
   - when:
       condition: << parameters.caching >>
       steps:
-        # The cache key names the CPU with uname -m rather than {{ arch }},
-        # which also encodes the CPU model and would split the cache by host.
-        # It also names HOME: a cache is restored to the absolute path it was
-        # saved from, so executors with different home directories can't
-        # share one.
+        # The key is computed from a file that names the CPU (uname -m, as
+        # {{ arch }} also encodes the CPU model and would split the cache by
+        # host), HOME (a cache is restored to the absolute path it was saved
+        # from), and the version with environment variables expanded.
         - run:
             name: Prepare Cosign cache key
-            command: echo "$(uname -m) ${HOME}" > /tmp/cosign-orb-cache-key
+            environment:
+              ORB_CACHE_KEY_FILE: /tmp/cosign-orb-cache-key
+              PARAM_VERSION: << parameters.version >>
+            command: << include(scripts/cache_key.sh) >>
         # A saved cache can't be replaced. Bump v1 when an existing checksum
         # table entry changes, so caches saved for the old bytes stop being
         # restored.

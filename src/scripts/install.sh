@@ -286,23 +286,29 @@ orb_download() {
 
 # orb_extract ASSET MEMBER: sets ORB_VERIFIED_FILE to the file the checksum
 # table describes, which is MEMBER extracted from ASSET, or ASSET itself
-# when MEMBER is empty.
+# when MEMBER is empty. An empty file is refused, which matters when there
+# is no checksum to catch it.
 orb_extract() {
     local asset=$1 member=$2 dir
-    if [[ -z "${member}" ]]; then
-        ORB_VERIFIED_FILE=${asset}
-        return 0
+    ORB_VERIFIED_FILE=${asset}
+    if [[ -n "${member}" ]]; then
+        dir="${ORB_WORK_DIR}/extract"
+        rm -rf "${dir}"
+        mkdir "${dir}"
+        # -o (don't restore the archive's owner) is spelled the same in GNU
+        # tar, bsdtar and BusyBox tar, even one built without long options.
+        if ! tar -xzf "${asset}" -o -C "${dir}" -- "${member}" 2> "${ORB_WORK_DIR}/tar.log"; then
+            orb_warn "Could not extract ${member} from ${ORB_ASSET_NAME}: $(head -c 300 "${ORB_WORK_DIR}/tar.log")"
+            return 1
+        fi
+        ORB_VERIFIED_FILE="${dir}/${member}"
+        if [[ ! -f "${ORB_VERIFIED_FILE}" || -L "${ORB_VERIFIED_FILE}" ]]; then
+            orb_warn "${member} in ${ORB_ASSET_NAME} is not a regular file."
+            return 1
+        fi
     fi
-    dir="${ORB_WORK_DIR}/extract"
-    rm -rf "${dir}"
-    mkdir "${dir}"
-    if ! tar -xzf "${asset}" -C "${dir}" --no-same-owner -- "${member}" 2> "${ORB_WORK_DIR}/tar.log"; then
-        orb_warn "Could not extract ${member} from ${ORB_ASSET_NAME}: $(head -c 300 "${ORB_WORK_DIR}/tar.log")"
-        return 1
-    fi
-    ORB_VERIFIED_FILE="${dir}/${member}"
-    if [[ ! -f "${ORB_VERIFIED_FILE}" || -L "${ORB_VERIFIED_FILE}" ]]; then
-        orb_warn "${member} in ${ORB_ASSET_NAME} is not a regular file."
+    if [[ ! -s "${ORB_VERIFIED_FILE}" ]]; then
+        orb_warn "${ORB_VERIFIED_FILE##*/} is empty."
         return 1
     fi
 }
@@ -363,8 +369,12 @@ orb_fetch_verified() {
         from_cache=false
         rm -f "${asset}"
         if [[ "${use_cache}" == "true" && -f "${ORB_CACHE_FILE}" ]]; then
+            if ! cp "${ORB_CACHE_FILE}" "${asset}"; then
+                orb_warn "Could not read the cached ${ORB_ASSET_NAME}. Downloading it instead."
+                use_cache=false
+                continue
+            fi
             orb_info "Using ${ORB_ASSET_NAME} from the cache."
-            cp "${ORB_CACHE_FILE}" "${asset}"
             from_cache=true
         else
             mapfile -t urls < <(tool_asset_urls "${ORB_VERSION}" "${ORB_ARCH}" "${ORB_ASSET_NAME}")
@@ -384,24 +394,33 @@ orb_fetch_verified() {
             use_cache=false
             continue
         fi
-        orb_die "${TOOL_NAME} ${ORB_VERSION} (${ORB_ARCH}) failed verification and was not installed."
+        orb_die "The ${TOOL_NAME} ${ORB_VERSION} (${ORB_ARCH}) download was rejected and not installed."
     done
     if [[ "${from_cache}" == "false" ]]; then
         orb_store_cache "${asset}"
     fi
 }
 
-# orb_install_file SOURCE DEST: installs SOURCE as the executable DEST,
-# replacing any existing file in a single rename.
+# orb_install_file SOURCE DEST: installs SOURCE as the executable DEST. The
+# file is staged under DEST's name in a private directory beside DEST and run
+# once (orb_smoke_test) before a single rename replaces DEST, so a binary
+# that can't run here leaves an existing install in place.
 orb_install_file() {
-    local dir=${2%/*}
+    local dir=${2%/*} name=${2##*/} staging=""
     if ! mkdir -p "${dir}"; then
         orb_die "Could not create ${dir}. Choose an install_path this job's user can write to without root."
     fi
     if [[ -d "$2" ]]; then
         orb_die "Cannot install to $2, which is a directory."
     fi
-    if ! { orb_temp_beside "$2" && cp "$1" "${ORB_TEMP}" && chmod 0755 "${ORB_TEMP}" && mv -f "${ORB_TEMP}" "$2"; }; then
+    if staging=$(mktemp -d "${dir}/.${name}.XXXXXX"); then
+        ORB_CLEANUP+=("${staging}")
+    fi
+    if [[ -z "${staging}" ]] || ! { cp "$1" "${staging}/${name}" && chmod 0755 "${staging}/${name}"; }; then
+        orb_die "Could not install ${TOOL_BINARY} to ${dir}. Choose an install_path this job's user can write to without root."
+    fi
+    orb_smoke_test "${staging}/${name}"
+    if ! mv -f "${staging}/${name}" "$2"; then
         orb_die "Could not install ${TOOL_BINARY} to ${dir}. Choose an install_path this job's user can write to without root."
     fi
 }
@@ -434,18 +453,18 @@ orb_export_path() {
     fi
 }
 
-# Runs the installed binary once, which catches a build that can't run here:
-# one for another architecture (exit code 126), or one that crashes, such as
-# with SIGILL on a CPU it doesn't support. tool_version needs no network, so
-# any failure means the binary doesn't work.
+# orb_smoke_test FILE: runs the new binary once, which catches a build that
+# can't run here: one for another architecture (exit code 126), or one that
+# crashes, such as with SIGILL on a CPU it doesn't support. tool_version
+# needs no network, so any failure means the binary doesn't work.
 orb_smoke_test() {
     local output rc=0 line
     if ! declare -F tool_version > /dev/null; then
         return 0
     fi
-    output=$(tool_version "${ORB_INSTALL_PATH}/${TOOL_BINARY}" 2>&1) || rc=$?
+    output=$(tool_version "$1" 2>&1) || rc=$?
     if [[ "${rc}" -ne 0 ]]; then
-        orb_die "The installed ${TOOL_BINARY} cannot run on this machine: asking it for its version" \
+        orb_die "The downloaded ${TOOL_BINARY} cannot run on this machine: asking it for its version" \
             "exited with code ${rc}. ${output}"
     fi
     orb_info "${TOOL_BINARY} reports:"
@@ -462,7 +481,6 @@ orb_install_main() {
         orb_install_binary
     fi
     orb_export_path "${ORB_BIN_DIR}"
-    orb_smoke_test
     orb_info "Installed ${TOOL_NAME} ${ORB_VERSION} to ${ORB_INSTALL_PATH}."
 }
 # <<< shared install logic <<<
