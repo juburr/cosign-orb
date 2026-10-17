@@ -8,7 +8,7 @@ set -e
 set +o history
 
 # Read in orb parameters
-PASSWORD=$(circleci env subst "${PARAM_PASSWORD}")
+PASSWORD=$(printf '%s' "${PARAM_PASSWORD}" | circleci env subst)
 PRIVATE_KEY_VAR="${PARAM_PRIVATE_KEY_VAR}"
 PUBLIC_KEY_VAR="${PARAM_PUBLIC_KEY_VAR}"
 PASSWORD_VAR="${PARAM_PASSWORD_VAR}"

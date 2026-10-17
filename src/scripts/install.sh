@@ -4,10 +4,10 @@ set -e
 set +o history
 
 # Read in orb parameters
-INSTALL_PATH=$(circleci env subst "${PARAM_INSTALL_PATH}")
+INSTALL_PATH=$(printf '%s' "${PARAM_INSTALL_PATH}" | circleci env subst)
 # Fail closed: anything but an explicit opt-out verifies against the table.
 VERIFY_CHECKSUMS="${PARAM_VERIFY_CHECKSUMS:-strict}"
-VERSION=$(circleci env subst "${PARAM_VERSION}")
+VERSION=$(printf '%s' "${PARAM_VERSION}" | circleci env subst)
 
 # Print command arguments for debugging purposes.
 echo "Running Cosign installer..."

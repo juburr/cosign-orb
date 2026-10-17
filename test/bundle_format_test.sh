@@ -257,8 +257,10 @@ exit 1
 EOF
   cat > "${stub}/circleci" << 'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "env" && "${2:-}" == "subst" ]]; then
-  printf '%s\n' "${3-}"
+# The scripts pass values on stdin; as an argument, one starting with "-"
+# would be parsed as a flag by the real CLI.
+if [[ "${1:-}" == "env" && "${2:-}" == "subst" && $# -eq 2 ]]; then
+  cat
   exit 0
 fi
 exit 1
@@ -361,8 +363,10 @@ exit 1
 EOF
   cat > "${stub}/circleci" << 'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "env" && "${2:-}" == "subst" ]]; then
-  printf '%s\n' "${3-}"
+# The scripts pass values on stdin; as an argument, one starting with "-"
+# would be parsed as a flag by the real CLI.
+if [[ "${1:-}" == "env" && "${2:-}" == "subst" && $# -eq 2 ]]; then
+  cat
   exit 0
 fi
 exit 1
