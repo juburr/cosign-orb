@@ -269,23 +269,30 @@ EOF
 chmod +x "${STUBS}"/*
 fixture_setup "${STUBS}"
 
-# A PATH with the stubs and every other command, except curl, so that
-# downloads go through wget.
-NO_CURL="${WORK}/no-curl"
-mkdir "${NO_CURL}"
-IFS=: read -r -a path_dirs <<< "${STUBS}:${PATH}"
-for dir in "${path_dirs[@]}"; do
-    links=()
-    for file in "${dir}"/*; do
-        name=${file##*/}
-        if [[ "${dir}" == /* && "${name}" != "curl" && -x "${file}" && ! -d "${file}" && ! -e "${NO_CURL}/${name}" ]]; then
-            links+=("${file}")
+# path_without NAME: prints a directory to use as the PATH that holds the
+# stubs and every other command, except NAME.
+path_without() {
+    local result="${WORK}/path-without-$1" dir file name
+    local -a path_dirs links
+    mkdir "${result}"
+    IFS=: read -r -a path_dirs <<< "${STUBS}:${PATH}"
+    for dir in "${path_dirs[@]}"; do
+        links=()
+        for file in "${dir}"/*; do
+            name=${file##*/}
+            if [[ "${dir}" == /* && "${name}" != "$1" && -x "${file}" && ! -d "${file}" && ! -e "${result}/${name}" ]]; then
+                links+=("${file}")
+            fi
+        done
+        if [[ "${#links[@]}" -gt 0 ]]; then
+            ln -s "${links[@]}" "${result}/"
         fi
     done
-    if [[ "${#links[@]}" -gt 0 ]]; then
-        ln -s "${links[@]}" "${NO_CURL}/"
-    fi
-done
+    printf '%s\n' "${result}"
+}
+# Downloads go through wget without curl.
+NO_CURL=$(path_without curl)
+NO_SHA512SUM=$(path_without sha512sum)
 
 # url VERSION ARCH [N]: the Nth URL install.sh tries (default 1).
 url() {
@@ -613,6 +620,17 @@ check "says the download failed" said "Could not download ${TOOL_NAME}"
 check "an HTTP error isn't retried" download_count "${URL_COUNT}"
 check "installs nothing" not_installed
 check "leaves no temporary files" clean_tmp
+
+begin "required tools"
+new_case
+run_install PATH="${NO_SHA512SUM}" PARAM_VERSION="${UNLISTED}" PARAM_VERIFY_CHECKSUMS=false
+check "an unverified install works without sha512sum" succeeded
+check "and installs" installed
+new_case
+run_install PATH="${NO_SHA512SUM}"
+check "a verified install fails without sha512sum" failed
+check "saying it needs sha512sum" said "needs 'sha512sum'"
+check "before downloading anything" no_downloads
 
 begin "install_path"
 new_case

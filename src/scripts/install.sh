@@ -202,7 +202,11 @@ orb_init() {
 
     ORB_ASSET_NAME=$(tool_asset_name "${ORB_VERSION}" "${ORB_ARCH}")
     ORB_ARCHIVE_MEMBER=$(tool_archive_member "${ORB_VERSION}" "${ORB_ARCH}")
-    orb_require_tools sha512sum mktemp
+    orb_require_tools mktemp
+    # Only verification needs sha512sum, so the opt-out modes run without it.
+    if [[ -n "${ORB_EXPECTED_SHA512}" ]]; then
+        orb_require_tools sha512sum
+    fi
     if [[ -n "${ORB_ARCHIVE_MEMBER}" ]]; then
         orb_require_tools tar gzip
     fi
