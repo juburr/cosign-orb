@@ -78,7 +78,7 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 
 ### Checksum Verification
 
-`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for published Cosign releases, keyed by `"<version>/<arch>"` (`amd64` or `arm64`, detected from `uname -m`). `src/scripts/install_hash.sh` prints new entries for both architectures after verifying each release binary's keyless signature. Three verification modes:
+`src/scripts/install.sh` contains a lookup table of SHA-512 checksums for published Cosign releases, keyed by `"<version>/<arch>"` (`amd64` or `arm64`, detected from `uname -m`). install.sh follows the layout every juburr orb's install.sh shares: a tool definition, a shared install logic block that must stay identical across the orbs, and the checksum table. `test/install_test.sh` is the install contract test shared by the orbs. `src/scripts/install_hash.sh` prints new entries for both architectures after verifying each release binary's keyless signature. Three verification modes:
 - `strict` (default): Fails if version not in lookup table
 - `known_versions`: Warns but installs an unverified binary for unknown versions
 - `false`: Skips verification (not recommended)

@@ -115,11 +115,11 @@ jobs:
     resource_class: arm.medium
     steps:
       - checkout
+      # install creates install_path and adds it to the PATH of later steps,
+      # so the machine executor needs no preparation for it.
       - run:
-          name: Prepare install path
+          name: Prepare tools
           command: |
-            mkdir -p /home/circleci/bin
-            echo 'export PATH="/home/circleci/bin:${PATH}"' >> "${BASH_ENV}"
             command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
             echo "uname -m: $(uname -m)"
       - cosign-orb/install

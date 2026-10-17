@@ -614,8 +614,8 @@ Expand a command to see its parameters.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `version` | string | `3.1.3` | Cosign version to install |
-| `caching` | boolean | `true` | Cache the Cosign binary between runs (the cache key includes the CPU architecture) |
-| `install_path` | string | `/home/circleci/bin` | Installation directory |
+| `caching` | boolean | `true` | Cache the downloaded release between runs, keyed by version, CPU architecture and home directory. Only verified releases are cached, and they are verified again when restored |
+| `install_path` | string | `$HOME/bin` | Absolute installation directory, created if needed and added to `PATH` for later steps when it isn't already there |
 | `verify_checksums` | enum | `strict` | Checksum verification mode: `strict` (fail unless the version's SHA-512 is in the orb's table and matches), `known_versions` (opt-out: install unlisted versions unverified), or `false` (opt-out: never verify) |
 
 </details>
