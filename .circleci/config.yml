@@ -47,7 +47,7 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Run install checksum tests
+          name: Run install contract tests
           command: bash test/install_test.sh
 
 workflows:
