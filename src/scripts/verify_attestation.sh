@@ -9,14 +9,14 @@ set -e
 set +o history
 
 # Read in orb parameters
-IMAGE=$(circleci env subst "${PARAM_IMAGE}")
-PREDICATE_TYPE=$(circleci env subst "${PARAM_PREDICATE_TYPE}")
+IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
+PREDICATE_TYPE=$(printf '%s' "${PARAM_PREDICATE_TYPE}" | circleci env subst)
 KEYLESS="${PARAM_KEYLESS:-0}"
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
-CERTIFICATE_IDENTITY=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY:-}")
-CERTIFICATE_IDENTITY_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")
-CERTIFICATE_OIDC_ISSUER=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER:-}")
-CERTIFICATE_OIDC_ISSUER_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}")
+CERTIFICATE_IDENTITY=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY:-}" | circleci env subst)
+CERTIFICATE_IDENTITY_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}" | circleci env subst)
+CERTIFICATE_OIDC_ISSUER=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER:-}" | circleci env subst)
+CERTIFICATE_OIDC_ISSUER_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}" | circleci env subst)
 
 is_keyless_enabled() {
     case "${KEYLESS,,}" in

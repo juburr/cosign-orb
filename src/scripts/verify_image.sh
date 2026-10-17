@@ -9,13 +9,13 @@ set -e
 set +o history
 
 # Read in orb parameters
-IMAGE=$(circleci env subst "${PARAM_IMAGE}")
+IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
 KEYLESS="${PARAM_KEYLESS:-0}"
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
-CERTIFICATE_IDENTITY=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY:-}")
-CERTIFICATE_IDENTITY_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")
-CERTIFICATE_OIDC_ISSUER=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER:-}")
-CERTIFICATE_OIDC_ISSUER_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}")
+CERTIFICATE_IDENTITY=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY:-}" | circleci env subst)
+CERTIFICATE_IDENTITY_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}" | circleci env subst)
+CERTIFICATE_OIDC_ISSUER=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER:-}" | circleci env subst)
+CERTIFICATE_OIDC_ISSUER_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}" | circleci env subst)
 
 # Only read key-related params if not using keyless
 if [[ "${KEYLESS}" != "1" ]]; then

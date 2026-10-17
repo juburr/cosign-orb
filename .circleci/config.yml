@@ -9,6 +9,14 @@ filters: &filters
     only: /.*/
 
 jobs:
+  test-env-subst:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run circleci env subst tests
+          command: bash test/env_subst_test.sh
   test-image-ref:
     docker:
       - image: cimg/base:current
@@ -45,6 +53,8 @@ jobs:
 workflows:
   lint-pack:
     jobs:
+      - test-env-subst:
+          filters: *filters
       - test-image-ref:
           filters: *filters
       - test-bundle-format:
@@ -66,5 +76,5 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: cosign-orb
-          requires: [test-image-ref, test-bundle-format, test-verify-image, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires: [test-env-subst, test-image-ref, test-bundle-format, test-verify-image, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
           filters: *filters

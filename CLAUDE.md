@@ -14,6 +14,7 @@ Local validation:
 - `circleci orb validate src/@orb.yml` - Validate orb syntax (requires CircleCI CLI)
 - `yamllint .` - YAML linting (config: relaxed profile, max 200 char lines)
 - `shellcheck src/scripts/*.sh` - Shell script linting
+- `bash test/env_subst_test.sh` - Checks that scripts pass parameter values to `circleci env subst` on stdin (`printf '%s' "${PARAM_X}" | circleci env subst`); as an argument, a value starting with `-` is parsed as a CLI flag
 
 ### Local Development Environment
 

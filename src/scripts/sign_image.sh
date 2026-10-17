@@ -9,9 +9,9 @@ set -e
 set +o history
 
 # Read in orb parameters
-IMAGE=$(circleci env subst "${PARAM_IMAGE}")
+IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
 KEYLESS="${PARAM_KEYLESS:-0}"
-ANNOTATIONS=$(circleci env subst "${PARAM_ANNOTATIONS}")
+ANNOTATIONS=$(printf '%s' "${PARAM_ANNOTATIONS}" | circleci env subst)
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
 # Temporary signing config created by this script. Start empty so the cleanup
 # trap never removes a SIGNING_CONFIG path inherited from the job environment.

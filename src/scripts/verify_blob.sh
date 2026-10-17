@@ -9,8 +9,8 @@ set -e
 set +o history
 
 # Read in orb parameters
-BLOB=$(circleci env subst "${PARAM_BLOB}")
-SIGNATURE=$(circleci env subst "${PARAM_SIGNATURE}")
+BLOB=$(printf '%s' "${PARAM_BLOB}" | circleci env subst)
+SIGNATURE=$(printf '%s' "${PARAM_SIGNATURE}" | circleci env subst)
 KEYLESS="${PARAM_KEYLESS:-false}"
 # Normalize boolean: CircleCI passes "true"/"false" strings, but also accept "1"/"0"
 if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
@@ -18,11 +18,11 @@ if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
 else
     KEYLESS="0"
 fi
-CERTIFICATE=$(circleci env subst "${PARAM_CERTIFICATE:-}")
-CERTIFICATE_IDENTITY=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY:-}")
-CERTIFICATE_IDENTITY_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")
-CERTIFICATE_OIDC_ISSUER=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER:-}")
-CERTIFICATE_OIDC_ISSUER_REGEXP=$(circleci env subst "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}")
+CERTIFICATE=$(printf '%s' "${PARAM_CERTIFICATE:-}" | circleci env subst)
+CERTIFICATE_IDENTITY=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY:-}" | circleci env subst)
+CERTIFICATE_IDENTITY_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}" | circleci env subst)
+CERTIFICATE_OIDC_ISSUER=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER:-}" | circleci env subst)
+CERTIFICATE_OIDC_ISSUER_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}" | circleci env subst)
 
 # Only read key-related params if not using keyless
 if [[ "${KEYLESS}" != "1" ]]; then

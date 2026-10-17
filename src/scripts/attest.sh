@@ -9,9 +9,9 @@ set -e
 set +o history
 
 # Read in orb parameters
-IMAGE=$(circleci env subst "${PARAM_IMAGE}")
-PREDICATE=$(circleci env subst "${PARAM_PREDICATE}")
-PREDICATE_TYPE=$(circleci env subst "${PARAM_PREDICATE_TYPE}")
+IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
+PREDICATE=$(printf '%s' "${PARAM_PREDICATE}" | circleci env subst)
+PREDICATE_TYPE=$(printf '%s' "${PARAM_PREDICATE_TYPE}" | circleci env subst)
 KEYLESS="${PARAM_KEYLESS:-0}"
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
 # Temporary signing config created by this script. Start empty so the cleanup
