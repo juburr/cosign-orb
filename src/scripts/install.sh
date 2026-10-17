@@ -428,23 +428,24 @@ orb_export_path() {
     fi
 }
 
-# Runs the installed binary once, which catches a build that can't run here.
+# Runs the installed binary once, which catches a build that can't run here:
+# one for another architecture (exit code 126), or one that crashes, such as
+# with SIGILL on a CPU it doesn't support. tool_version needs no network, so
+# any failure means the binary doesn't work.
 orb_smoke_test() {
     local output rc=0 line
     if ! declare -F tool_version > /dev/null; then
         return 0
     fi
     output=$(tool_version "${ORB_INSTALL_PATH}/${TOOL_BINARY}" 2>&1) || rc=$?
-    if [[ "${rc}" -eq 126 || "${rc}" -eq 127 ]]; then
-        orb_die "The installed ${TOOL_BINARY} cannot run on this machine (exit code ${rc}): ${output}"
+    if [[ "${rc}" -ne 0 ]]; then
+        orb_die "The installed ${TOOL_BINARY} cannot run on this machine: asking it for its version" \
+            "exited with code ${rc}. ${output}"
     fi
     orb_info "${TOOL_BINARY} reports:"
     while IFS= read -r line; do
         orb_info "  ${line}"
     done <<< "${output}"
-    if [[ "${rc}" -ne 0 ]]; then
-        orb_warn "Asking ${TOOL_BINARY} for its version exited with code ${rc}."
-    fi
 }
 
 orb_install_main() {

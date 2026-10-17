@@ -146,7 +146,11 @@ if [[ -n "${UPSTREAM_CHECKSUM}" && "${UPSTREAM_CHECKSUM}" != "NONE" ]]; then
         hash_die "-c describes one asset, so pick its architecture with -a."
     fi
 fi
-for tool in curl sha256sum sha512sum tar gzip; do
+REQUIRED_TOOLS=(curl sha256sum sha512sum tar gzip)
+if [[ "${UPSTREAM_CHECKSUM}" == SHA1:* ]]; then
+    REQUIRED_TOOLS+=(sha1sum)
+fi
+for tool in "${REQUIRED_TOOLS[@]}"; do
     command -v "${tool}" > /dev/null || hash_die "${tool} is required."
 done
 

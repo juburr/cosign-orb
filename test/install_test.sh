@@ -23,7 +23,8 @@
 #     already there; another copy earlier on the PATH is reported
 #   - only verified releases are cached, a cached release is verified again,
 #     and the cache isn't read when there is nothing to verify against
-#   - a binary that cannot run on the machine fails the install
+#   - a binary that cannot run, crashes, or fails its version command fails
+#     the install
 #   - nothing is left in the working directory or TMPDIR
 #
 # Downloads, uname and the circleci CLI are stubbed, so no network is needed.
@@ -154,12 +155,13 @@ if ! declare -F fixture_checks > /dev/null; then
         :
     }
 fi
-read -r -a TEST_VERSIONS <<< "${FIXTURE_TEST_VERSIONS:-0.0.0-orbtest 0.0.1-orbtest 0.0.2-orbtest 0.0.3-orbtest 0.0.4-orbtest}"
+read -r -a TEST_VERSIONS <<< "${FIXTURE_TEST_VERSIONS:-0.0.0-orbtest 0.0.1-orbtest 0.0.2-orbtest 0.0.3-orbtest 0.0.4-orbtest 0.0.5-orbtest}"
 LISTED=${TEST_VERSIONS[0]}    # in the table, and the served asset matches
 TAMPERED=${TEST_VERSIONS[1]}  # in the table, but the served asset differs
 BROKEN=${TEST_VERSIONS[2]}    # in the table and matches, but cannot run
 UNLISTED=${TEST_VERSIONS[3]}  # not in the table
 FALLBACK=${TEST_VERSIONS[4]}  # in the table, served only at the second URL
+FAILING=${TEST_VERSIONS[5]}   # in the table and matches, but runs and fails
 
 if [[ "${TOOL_ARCHES}" == "noarch" ]]; then
     ARCHES="noarch"
@@ -309,13 +311,17 @@ for arch in ${ARCHES}; do
     fixture_binary "${arch}" > "${WORK}/good-${arch}"
     printf '\177ELF\0\0\0\0not a program for this machine\n' > "${WORK}/broken-${arch}"
     printf '#!/bin/sh\necho tampered\n' > "${WORK}/tampered-${arch}"
+    # Exits with code 3, or crashes with SIGSEGV (139) when ORB_TEST_CRASH is set.
+    # shellcheck disable=SC2016 # expanded by the stand-in binary
+    printf '#!/bin/sh\n[ -n "${ORB_TEST_CRASH:-}" ] && kill -SEGV $$\nexit 3\n' > "${WORK}/failing-${arch}"
     good=$(serve "${LISTED}" "${arch}" "${WORK}/good-${arch}")
     serve "${UNLISTED}" "${arch}" "${WORK}/good-${arch}" > /dev/null
     broken=$(serve "${BROKEN}" "${arch}" "${WORK}/broken-${arch}")
+    failing=$(serve "${FAILING}" "${arch}" "${WORK}/failing-${arch}")
     tampered_listed=$(fixture_make_asset "${TAMPERED}" "${arch}" "${WORK}/unused.tmp" "${WORK}/good-${arch}" | xargs sha512sum | awk '{ print $1 }')
     serve "${TAMPERED}" "${arch}" "${WORK}/tampered-${arch}" > /dev/null
     printf '    ["%s/%s"]="%s"\n' "${LISTED}" "${arch}" "${good}" "${TAMPERED}" "${arch}" "${tampered_listed}" \
-        "${BROKEN}" "${arch}" "${broken}" >> "${WORK}/entries"
+        "${BROKEN}" "${arch}" "${broken}" "${FAILING}" "${arch}" "${failing}" >> "${WORK}/entries"
     if [[ "${URL_COUNT}" -gt 1 ]]; then
         fallback=$(serve "${FALLBACK}" "${arch}" "${WORK}/good-${arch}" 2)
         printf '    ["%s/%s"]="%s"\n' "${FALLBACK}" "${arch}" "${fallback}" >> "${WORK}/entries"
@@ -454,11 +460,11 @@ for param in caching install_path verify_checksums version; do
     check "passes ${param} to install.sh" said "PARAM_${param^^}: << parameters.${param} >>"
 done
 check "runs install.sh" said "command: << include(scripts/install.sh) >>"
-check "writes the cache key's architecture file" said "command: uname -m > /tmp/${ORB_NAME}-arch"
+check "writes the cache key file from the CPU and HOME" said "command: echo \"\$(uname -m) \${HOME}\" > /tmp/${ORB_NAME}-cache-key"
 KEYS=$(grep -E '^ +key: ' "${INSTALL_YML}" | sed -E 's/^ +key: //' | sort -u)
 OUTPUT="cache keys: ${KEYS}"
-check "restores and saves one cache key, made of the orb, version and architecture" \
-    test "${KEYS}" = "${ORB_NAME}-v1-<< parameters.version >>-{{ checksum \"/tmp/${ORB_NAME}-arch\" }}"
+check "restores and saves one cache key, made of the orb, version, architecture and HOME" \
+    test "${KEYS}" = "${ORB_NAME}-v1-<< parameters.version >>-{{ checksum \"/tmp/${ORB_NAME}-cache-key\" }}"
 OUTPUT=$(cat "${INSTALL_YML}")
 check "saves the directory install.sh caches in" grep -qE "^ +- ~/\.cache/${ORB_NAME}\$" "${INSTALL_YML}"
 
@@ -698,6 +704,14 @@ if declare -F tool_version > /dev/null; then
     run_install PARAM_VERSION="${BROKEN}"
     check "fails" failed
     check "says it cannot run" said "cannot run on this machine"
+    new_case
+    run_install PARAM_VERSION="${FAILING}" ORB_TEST_CRASH=1
+    check "a binary that crashes (SIGSEGV) fails the install" failed
+    check "with its exit code" said "exited with code 139"
+    new_case
+    run_install PARAM_VERSION="${FAILING}"
+    check "a binary whose version command fails fails the install" failed
+    check "with its exit code" said "exited with code 3"
 fi
 
 fixture_checks

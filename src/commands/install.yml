@@ -7,9 +7,9 @@ parameters:
     type: boolean
     default: true
     description: >
-      Cache the downloaded release between jobs, keyed by version and CPU
-      architecture. Only verified releases are cached, and a cached release
-      is verified again before it is installed.
+      Cache the downloaded release between jobs, keyed by version, CPU
+      architecture and home directory. Only verified releases are cached, and
+      a cached release is verified again before it is installed.
   install_path:
     type: string
     default: ""
@@ -40,11 +40,14 @@ steps:
       steps:
         # The cache key names the CPU with uname -m rather than {{ arch }},
         # which also encodes the CPU model and would split the cache by host.
+        # It also names HOME: a cache is restored to the absolute path it was
+        # saved from, so executors with different home directories can't
+        # share one.
         - run:
             name: Prepare Cosign cache key
-            command: uname -m > /tmp/cosign-orb-arch
+            command: echo "$(uname -m) ${HOME}" > /tmp/cosign-orb-cache-key
         - restore_cache:
-            key: cosign-orb-v1-<< parameters.version >>-{{ checksum "/tmp/cosign-orb-arch" }}
+            key: cosign-orb-v1-<< parameters.version >>-{{ checksum "/tmp/cosign-orb-cache-key" }}
   - run:
       name: Install Cosign << parameters.version >>
       environment:
@@ -57,6 +60,6 @@ steps:
       condition: << parameters.caching >>
       steps:
         - save_cache:
-            key: cosign-orb-v1-<< parameters.version >>-{{ checksum "/tmp/cosign-orb-arch" }}
+            key: cosign-orb-v1-<< parameters.version >>-{{ checksum "/tmp/cosign-orb-cache-key" }}
             paths:
               - ~/.cache/cosign-orb
