@@ -470,8 +470,9 @@ check "runs install.sh" said "command: << include(scripts/install.sh) >>"
 check "writes the cache key file from the CPU and HOME" said "command: echo \"\$(uname -m) \${HOME}\" > /tmp/${ORB_NAME}-cache-key"
 KEYS=$(grep -E '^ +key: ' "${INSTALL_YML}" | sed -E 's/^ +key: //' | sort -u)
 OUTPUT="cache keys: ${KEYS}"
-check "restores and saves one cache key, made of the orb, version, architecture and HOME" \
-    test "${KEYS}" = "${ORB_NAME}-v1-<< parameters.version >>-{{ checksum \"/tmp/${ORB_NAME}-cache-key\" }}"
+check "restores and saves the same cache key" test "$(wc -l <<< "${KEYS}")" -eq 1
+check "made of the orb, a cache version, the version, the architecture and HOME" \
+    grep -qxE "${ORB_NAME}-v[0-9]+-<< parameters\.version >>-\{\{ checksum \"/tmp/${ORB_NAME}-cache-key\" \}\}" <<< "${KEYS}"
 OUTPUT=$(cat "${INSTALL_YML}")
 check "saves the directory install.sh caches in" grep -qE "^ +- ~/\.cache/${ORB_NAME}\$" "${INSTALL_YML}"
 
@@ -700,6 +701,7 @@ uninstall
 run_install PARAM_CACHING=true
 check "verifies a cached asset, and recovers when it doesn't match" installed
 check "warns about it" said "failed verification. Discarding it"
+check "and explains that later jobs will restore it too" said "can't replace a saved cache"
 check "downloads the asset again" downloaded "$(url "${LISTED}" "${DEFAULT_ARCH}")"
 check "replaces the cached asset" cmp -s "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")" "$(served_file "${LISTED}" "${DEFAULT_ARCH}")"
 new_case

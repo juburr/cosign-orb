@@ -46,6 +46,9 @@ steps:
         - run:
             name: Prepare Cosign cache key
             command: echo "$(uname -m) ${HOME}" > /tmp/cosign-orb-cache-key
+        # A saved cache can't be replaced. Bump v1 when an existing checksum
+        # table entry changes, so caches saved for the old bytes stop being
+        # restored.
         - restore_cache:
             key: cosign-orb-v1-<< parameters.version >>-{{ checksum "/tmp/cosign-orb-cache-key" }}
   - run:
