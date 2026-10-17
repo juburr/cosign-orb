@@ -6,9 +6,12 @@
 #   src/scripts/install_hash.sh -v <version> [-a "<arch> ..."] [-c <checksum>]
 #
 #   -a  architectures to hash (default: every one install.sh supports)
-#   -c  the checksum Cosign published for the asset, as SHA-256:<hex> or
-#       SHA1:<hex>, when verify_upstream cannot fetch it; or NONE to add an
-#       entry that is not anchored to any published checksum
+#   -c  a checksum for the asset from another official source, as
+#       SHA-256:<hex> or SHA1:<hex>, for a release whose published checksums
+#       don't cover it (verify_upstream finds nothing); or NONE to add an
+#       entry that is not anchored to any published checksum. -c never
+#       overrides a failure to fetch or verify what Cosign did publish:
+#       re-run once the source is reachable.
 #
 # Each asset is checked against what the Cosign project published for the
 # release before its entry is printed (see verify_upstream). Entries go to

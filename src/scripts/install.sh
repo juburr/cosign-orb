@@ -109,6 +109,10 @@ orb_dir_param() {
     if [[ "${value}" != /* ]]; then
         orb_die "${1} must be an absolute path, not '${value}'."
     fi
+    # The directory may be added to the PATH, where ":" separates entries.
+    if [[ "${value}" == *:* ]]; then
+        orb_die "${1} can't contain ':', which separates PATH entries: '${value}'."
+    fi
     printf '%s\n' "${value}"
 }
 

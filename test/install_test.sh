@@ -19,7 +19,7 @@
 #   - downloads fall back to the next URL, and work with wget alone or an
 #     old curl
 #   - install_path expands variables and ~/, defaults under HOME, must be
-#     absolute, and is added to the PATH of later steps only when it isn't
+#     absolute without a ':', and is added to the PATH of later steps only when it isn't
 #     already there; another copy earlier on the PATH is reported
 #   - the cache key file names the CPU, HOME and the expanded version, and
 #     a file planted at its path is never written through
@@ -630,6 +630,11 @@ check "caching 'maybe' is rejected" failed
 new_case
 run_install PARAM_INSTALL_PATH=relative/bin
 check "a relative install_path is rejected" failed
+check "nothing is downloaded" no_downloads
+new_case
+run_install PARAM_INSTALL_PATH="${CASE}/tools:stable"
+check "an install_path containing ':' is rejected" failed
+check "saying it would split the PATH entry" said "can't contain ':'"
 check "nothing is downloaded" no_downloads
 
 if [[ "${ARCHES}" == "noarch" ]]; then
