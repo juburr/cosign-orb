@@ -394,7 +394,9 @@ orb_fetch_verified() {
             orb_warn "The cached ${ORB_ASSET_NAME} failed verification. Discarding it and downloading it again."
             orb_warn "CircleCI can't replace a saved cache, so later jobs will do the same until it expires." \
                 "Set caching to false to skip it until then."
-            rm -f "${ORB_CACHE_FILE}"
+            # Like saving it, removing it is best-effort: a read-only cache
+            # directory only means the download isn't cached.
+            rm -f "${ORB_CACHE_FILE}" 2> /dev/null || true
             use_cache=false
             continue
         fi

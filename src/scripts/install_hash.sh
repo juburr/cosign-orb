@@ -37,13 +37,15 @@ verify_upstream() {
     elif [[ "${rc}" -eq 2 ]]; then
         rc=0
         hash_fetch "${base}/${name}-keyless.sig" "${name}.sig" || rc=$?
-        if [[ "${rc}" -eq 0 ]]; then
-            hash_fetch "${base}/${name}-keyless.pem" "${name}.pem" || rc=$?
-        fi
         if [[ "${rc}" -eq 2 ]]; then
             echo "Cosign $1 publishes no keyless signature for ${name}."
             return 2
         elif [[ "${rc}" -ne 0 ]]; then
+            return 1
+        fi
+        # A signature without its certificate can't be verified, so it fails.
+        if ! hash_fetch "${base}/${name}-keyless.pem" "${name}.pem"; then
+            echo "ERROR: Cosign $1 publishes a keyless signature for ${name}, but not its certificate."
             return 1
         fi
         args=(--signature "${name}.sig" --certificate "${name}.pem")
@@ -165,13 +167,16 @@ trap 'rm -rf "${HASH_WORK_DIR}"' EXIT
 # and any checksum supplied with -c.
 check_upstream() {
     local rc=0 expected actual
-    if [[ "${UPSTREAM_CHECKSUM}" == "NONE" ]]; then
-        printf 'WARN: -c NONE: %s is not checked against any published checksum.\n' "${3##*/}" >&2
-        return 0
-    fi
     (cd "${3%/*}" && verify_upstream "$1" "$2" "$3") >&2 || rc=$?
     if [[ "${rc}" -ne 0 && "${rc}" -ne 2 ]]; then
         hash_die "${3##*/} could not be verified against what ${TOOL_NAME} published for ${1}."
+    fi
+    # NONE only stands in for a checksum that was never published.
+    if [[ "${UPSTREAM_CHECKSUM}" == "NONE" ]]; then
+        if [[ "${rc}" -eq 2 ]]; then
+            printf 'WARN: -c NONE: %s is not checked against any published checksum.\n' "${3##*/}" >&2
+        fi
+        return 0
     fi
     if [[ -n "${UPSTREAM_CHECKSUM}" ]]; then
         expected=${UPSTREAM_CHECKSUM#*:}

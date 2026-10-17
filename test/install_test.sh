@@ -24,8 +24,8 @@
 #   - the cache key file names the CPU, HOME and the expanded version, and
 #     a file planted at its path is never written through
 #   - only verified releases are cached, a cached release is verified again,
-#     an unreadable one is downloaded again, and the cache isn't read when
-#     there is nothing to verify against
+#     an unreadable or undeletable bad one is downloaded again, and the
+#     cache isn't read when there is nothing to verify against
 #   - an empty download is refused even when nothing is verified
 #   - a binary that cannot run, crashes, or fails its version command fails
 #     the install, before it replaces an existing install or touches the PATH
@@ -779,7 +779,8 @@ check "warns about it" said "failed verification. Discarding it"
 check "and explains that later jobs will restore it too" said "can't replace a saved cache"
 check "downloads the asset again" downloaded "$(url "${LISTED}" "${DEFAULT_ARCH}")"
 check "replaces the cached asset" cmp -s "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")" "$(served_file "${LISTED}" "${DEFAULT_ARCH}")"
-# Root reads any file, so this runs only as another user, as on CircleCI.
+# Root reads and writes any file, so these run only as another user, as on
+# CircleCI.
 if [[ "$(id -u)" -ne 0 ]]; then
     new_case
     run_install PARAM_CACHING=true
@@ -788,6 +789,14 @@ if [[ "$(id -u)" -ne 0 ]]; then
     run_install PARAM_CACHING=true
     check "an unreadable cached asset is downloaded instead" installed
     check "with a warning" said "Could not read the cached"
+    new_case
+    run_install PARAM_CACHING=true
+    fixture_make_asset "${LISTED}" "${DEFAULT_ARCH}" "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")" "${WORK}/tampered-${DEFAULT_ARCH}" > /dev/null
+    chmod 555 "$(dirname "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")")"
+    uninstall
+    run_install PARAM_CACHING=true
+    chmod 755 "$(dirname "$(cache_file "${LISTED}" "${DEFAULT_ARCH}")")"
+    check "a bad cached asset that can't be removed is downloaded instead" installed
 fi
 new_case
 run_install PARAM_CACHING=true PARAM_VERSION="${UNLISTED}" PARAM_VERIFY_CHECKSUMS=known_versions
