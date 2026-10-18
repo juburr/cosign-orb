@@ -4,8 +4,10 @@
 # file is in every orb; keep the copies identical.
 #
 #   1. The first line is #!/bin/bash.
-#   2. The first command is `set -euo pipefail`. Libraries under lib/ are
-#      eval'ed by a script that already set it, so they have no set line.
+#   2. The first command is `set -euo pipefail`, alone on its line or
+#      followed by ; and more commands (set -euo pipefail; IFS=$'\n\t').
+#      Libraries under lib/ are eval'ed by a script that already set it, so
+#      they have no set line.
 #      A script that must not stop on errors says why on a line
 #      `# shell-conventions: no-errexit <reason>` and uses `set -uo pipefail`.
 #   3. No `set +o history` (a no-op in a non-interactive shell), and no set
@@ -20,10 +22,11 @@
 #      Error:, FATAL:, WARNING: and Warning: are not used.
 #   5. Exports written by echo or printf quote every value with printf %q,
 #      so no value can end the quoting or run a command when later steps
-#      source $BASH_ENV. Everything after export NAME= up to a \n or the
-#      end of its shell word (a space outside quotes; adjacent quoted
-#      parts, as in 'export A='"$v", are one word) must be %q or plain
-#      text. This applies to every printed export, including one in
+#      source $BASH_ENV. Everything after export NAME= up to the end of
+#      its shell word (a space outside quotes; adjacent quoted parts, as
+#      in 'export A='"$v", are one word), or for printf up to a \n, must
+#      be %q or plain text. For echo, % and \n are plain text. This
+#      applies to every printed export, including one in
 #      a substitution, not only to lines that name $BASH_ENV: exports also
 #      reach it through groups, tee and helper files.
 #   6. eval only runs code the orb itself includes: a variable whose name
@@ -33,13 +36,14 @@
 # Each line is split into its commands at ;, &, |, && and || outside quotes,
 # and every command is checked on its own. Checks 3, 5 and 6 also split and
 # check the commands inside each $(...), <(...), >(...) or backtick
-# substitution, in double quotes or none (single quotes make it text). A command may follow keywords, a one-line
-# function declaration, a case pattern, variable assignments (quoted values
-# included), redirections, and command or builtin. A >&2 only counts outside
-# quotes and comments. A heredoc that is never closed fails the check,
-# since everything after it would be skipped as data. Commands that span
-# lines, or a { ...; } >&2 group over several lines, are not followed: write
-# one message command per line with its own >&2.
+# substitution, in double quotes or none (single quotes make it text). A
+# command may follow keywords, a one-line function declaration, a case
+# pattern, variable assignments (quoted values included), redirections, and
+# command or builtin. A >&2 only counts outside quotes and comments. A
+# heredoc that is never closed fails the check, since everything after it
+# would be skipped as data. Commands that span lines, or a { ...; } >&2 group
+# over several lines, are not followed: write one message command per line
+# with its own >&2.
 #
 # This is a line check of the ordinary spellings, not a shell parser: it
 # catches the usual ways of breaking these rules by mistake, not code written
@@ -149,7 +153,7 @@ assignment="[A-Za-z_][A-Za-z0-9_]*\\+?=(\"[^\"]*\"|'[^']*'|\\\$\\(\\([^)]*\\)\\)
 # a one-line function declaration (f() {, f() ( or function f {), a case
 # pattern, variable assignments and redirections, behind the command or
 # builtin wrappers (with command's -p or --), and after a backslash (\eval).
-lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*[{(][[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+[{(][[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
+lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*[{(][[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+[{(][[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*&?[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
 # An allowed eval may redirect its output (eval "${X_LIB}" 2>/dev/null or
 # &>/dev/null).
 allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*&?[<>]+&?[[:space:]]*[^[:space:]]+)*[[:space:]]*([)`].*)?$'
@@ -157,11 +161,13 @@ allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*
 param_eval='eval[[:space:]]+"\$\{PARAM_'
 # What may come before an echo or printf's message text: redirections, the
 # options echo takes (-n, -e and -E; echo prints any other, -- included) or
-# printf's --, and for printf a bare '%s\n' format.
+# printf's --, and for printf a bare '%s\n' format (with redirections after
+# it too).
 redirection='[0-9]*>&[0-9]+|[0-9]*>>?[[:space:]]*[^[:space:]]+'
 echo_before_text='^([[:space:]]*(-[neE]+|'"${redirection}"')[[:space:]]+)*'
 printf_before_text='^([[:space:]]*(--|'"${redirection}"')[[:space:]]+)*'
 printf_format=$'(\\$?["\']%s(\\\\n)?["\'][[:space:]]+)?'
+redirections='(('"${redirection}"')[[:space:]]+)*'
 text_start=$'(\\$?["\'])?(ERROR|WARN):'
 # A >&2 or 1>&2 (3>&2 and {fd}>&2 send another descriptor, not stdout).
 stderr_re='(^|[^0-9}])1?>&2([^0-9]|$)'
@@ -194,11 +200,14 @@ word_value() {
     done
 }
 
-# unsafe_export TEXT: succeeds if an export NAME= in TEXT takes a value that
-# is neither %q nor plain text. The value ends at a printf \n or at the end
-# of its shell word.
+# unsafe_export TEXT: succeeds if an export NAME= in the echo or printf
+# command TEXT takes a value that is neither %q nor plain text. The value
+# ends at the end of its shell word, or for printf at a \n.
 unsafe_export() {
-    local text=$1 quote="" char value i
+    local text=$1 quote="" char value i printing=printf
+    if [[ "${text}" =~ ${lead}echo([[:space:]]|$) ]]; then
+        printing="echo"
+    fi
     for ((i = 0; i < ${#text}; i++)); do
         char=${text:i:1}
         if [[ -n "${quote}" && "${char}" == "${quote}" ]]; then
@@ -213,10 +222,17 @@ unsafe_export() {
         fi
         [[ "${text:i}" =~ ^export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*|%[a-z])=(.*) ]] || continue
         word_value "${BASH_REMATCH[2]}" "${quote}"
-        value=${value%%\\n*}
-        # %% prints a literal %, and %q quotes the value.
-        value=${value//%%/}
-        value=${value//%q/}
+        if [[ "${printing}" == echo ]]; then
+            # echo prints % and \n as they are.
+            value=${value//%/}
+        else
+            value=${value%%\\n*}
+            # %% prints a literal %, %q quotes the value, and a later
+            # " %s=" is the next assignment's name (export %s=%q %s=%q).
+            value=${value//%%/}
+            value=${value// %s=/ }
+            value=${value//%q/}
+        fi
         if [[ "${value}" == *[\$%\`]* ]]; then
             return 0
         fi
@@ -285,7 +301,10 @@ for script in "${scripts[@]}"; do
             guard { if ($0 ~ /^fi$/) guard = 0; next }
             { sub(/[[:space:]]+#.*$/, ""); print; exit }
         ' "${path}")
-        if [[ "${first}" != "${want}" ]]; then
+        # The set command may be followed by ; and more commands.
+        first_command=${first%%;*}
+        first_command=${first_command%"${first_command##*[![:space:]]}"}
+        if [[ "${first_command}" != "${want}" ]]; then
             fail "${script}: the first command must be '${want}', not '${first}'"
         fi
     fi
@@ -406,7 +425,7 @@ for script in "${scripts[@]}"; do
                 if [[ "${cmd}" =~ (^|[^A-Za-z0-9_{$])(ERROR|WARN): ]]; then
                     prefix=${BASH_REMATCH[2]}
                     if [[ "${command_word}" =~ printf[[:space:]]*$ ]]; then
-                        message_re=${printf_before_text}${printf_format}
+                        message_re=${printf_before_text}${printf_format}${redirections}
                     else
                         message_re=${echo_before_text}
                     fi
