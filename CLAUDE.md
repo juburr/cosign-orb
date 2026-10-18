@@ -98,7 +98,8 @@ Every script under `src/scripts/` except the shared install code follows the con
 - No `set +o history`, never enable xtrace. Scripts that handle a key, password or token run `set +o xtrace` with a one-line comment.
 - Messages start with `ERROR: ` or `WARN: ` and go to stderr, continuation lines included. Every non-zero exit prints an `ERROR:` line first.
 - `$BASH_ENV` exports use `printf 'export %s=%q\n'`. `eval` only runs `"${..._LIB}"` / `"${..._SCRIPT}"`.
-- Secrets never go on a command line. Secret and temporary files come from `mktemp`, are removed by the script's one EXIT trap, and never use fixed names.
+- Secrets never go on a command line, with one known exception: Cosign 1 keyless signing (`sign`, `attest`, `sign_blob`) passes the OIDC token as `--identity-token=...`, which other processes on the executor can see. Cosign 2 and 3 read it from the exported `SIGSTORE_ID_TOKEN` instead. Secret and temporary files come from `mktemp`, are removed by the script's one EXIT trap, and never use fixed names.
+- `generate_key_pair` wraps its `$BASH_ENV` exports in lines that turn xtrace off while later steps source them and back on after, so a job that traces every step never prints the password or keys.
 
 ## Key Files
 

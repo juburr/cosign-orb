@@ -89,10 +89,17 @@ if [[ -z "${BASH_ENV:-}" ]]; then
     echo "ERROR: BASH_ENV is not set, so the keys cannot be exported to later steps." >&2
     exit 1
 fi
+# Later steps source BASH_ENV with xtrace on if the job turned it on, so the
+# exports are wrapped in lines that turn it off while they run (the trace of
+# that goes to /dev/null) and back on after.
 {
+    # shellcheck disable=SC2016 # expanded when a later step sources BASH_ENV
+    printf '%s\n' '{ case $- in *x*) cosign_orb_xtrace=1 ;; *) cosign_orb_xtrace= ;; esac; set +x; } 2>/dev/null'
     printf 'export %s=%q\n' "${PASSWORD_ENV_VAR}" "${PASSWORD}"
     printf 'export %s=%q\n' "${PRIVATE_KEY_ENV_VAR}" "${PRIVATE_KEY_B64}"
     printf 'export %s=%q\n' "${PUBLIC_KEY_ENV_VAR}" "${PUBLIC_KEY_B64}"
+    # shellcheck disable=SC2016 # expanded when a later step sources BASH_ENV
+    printf '%s\n' '[ -z "${cosign_orb_xtrace:-}" ] || set -x; unset cosign_orb_xtrace'
 } >> "${BASH_ENV}"
 
 echo ""

@@ -122,6 +122,34 @@ else
   fail_case "custom names: exit ${STATUS}, BASH_ENV: $(cat "${WORK}/bash_env")"
 fi
 
+# A job can turn xtrace on for every step, with set -x earlier in BASH_ENV
+# or through SHELLOPTS, and later steps source BASH_ENV with it on. The trace
+# must not show the password or the key, and xtrace must still be on after.
+run "xtrace" PARAM_PASSWORD_ENV_VAR=MY_PASSWORD MY_PASSWORD="trace-me-not-${RANDOM}"
+private_key="$(exported COSIGN_PRIVATE_KEY)"
+{ printf 'set -x\n'; cat "${WORK}/bash_env"; } > "${WORK}/bash_env.xtrace"
+for how in "set -x in BASH_ENV" "SHELLOPTS=xtrace"; do
+  if [[ "${how}" == SHELLOPTS* ]]; then
+    env_file="${WORK}/bash_env" shellopts=(SHELLOPTS=xtrace)
+  else
+    env_file="${WORK}/bash_env.xtrace" shellopts=()
+  fi
+  # shellcheck disable=SC2016 # expanded by the child shell, not here
+  trace="$(cd "${WORK}" && env -i PATH="${PATH}" ${shellopts[@]+"${shellopts[@]}"} \
+    bash -c 'source "$1"; case $- in *x*) echo "xtrace is on" ;; esac' _ "${env_file}" 2>&1)"
+  if [[ "$STATUS" -ne 0 ]]; then
+    fail_case "xtrace (${how}): exit ${STATUS}"
+  elif [[ "${trace}" == *trace-me-not* || "${trace}" == *"${private_key}"* ]]; then
+    printf '%s\n' "${trace}" > "${TMP}/out"
+    fail_case "xtrace (${how}): sourcing BASH_ENV traced the password or key"
+  elif [[ "${trace}" != *"xtrace is on"* ]]; then
+    printf '%s\n' "${trace}" > "${TMP}/out"
+    fail_case "xtrace (${how}): xtrace was not left on"
+  else
+    printf 'ok: sourcing BASH_ENV with xtrace on (%s) traces neither the password nor the key\n' "${how}"
+  fi
+done
+
 run "invalid name" 'PARAM_PASSWORD_ENV_VAR=X;touch pwned'
 if [[ "$STATUS" -ne 0 && ! -s "${WORK}/bash_env" ]] && ! compgen -G "${WORK}/pwned*" > /dev/null; then
   printf 'ok: an invalid variable name is refused before anything is exported\n'
