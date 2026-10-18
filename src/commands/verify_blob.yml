@@ -18,11 +18,11 @@ parameters:
     type: string
     description: |
       Path to the certificate file (keyless only). Required when keyless is true.
-      This is the certificate generated during keyless signing (certificate_output).
+      This is the certificate file sign_blob wrote during keyless signing (its output_certificate).
     default: ""
   public_key:
     type: env_var_name
-    description: Base-64 encoded public key. Ignored when keyless is true.
+    description: Name of the environment variable that holds the base64-encoded public key. Ignored when keyless is true.
     default: COSIGN_PUBLIC_KEY
   certificate_identity:
     type: string

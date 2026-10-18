@@ -33,14 +33,22 @@ jobs:
       - run:
           name: Run bundle format tests
           command: bash test/bundle_format_test.sh
-  test-verify-image:
+  test-verify:
     docker:
       - image: cimg/base:current
     steps:
       - checkout
       - run:
-          name: Run verify_image signature tests
-          command: bash test/verify_image_test.sh
+          name: Run verify signature tests
+          command: bash test/verify_test.sh
+  test-generate-key-pair:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run generate_key_pair tests
+          command: bash test/generate_key_pair_test.sh
   test-install:
     docker:
       - image: cimg/base:current
@@ -59,7 +67,9 @@ workflows:
           filters: *filters
       - test-bundle-format:
           filters: *filters
-      - test-verify-image:
+      - test-verify:
+          filters: *filters
+      - test-generate-key-pair:
           filters: *filters
       - test-install:
           filters: *filters
@@ -76,5 +86,5 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: cosign-orb
-          requires: [test-env-subst, test-image-ref, test-bundle-format, test-verify-image, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires: [test-env-subst, test-image-ref, test-bundle-format, test-verify, test-generate-key-pair, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
           filters: *filters

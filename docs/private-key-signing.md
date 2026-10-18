@@ -103,7 +103,7 @@ jobs:
       # Install Cosign and sign the image
       - cosign/install:
           version: "3.1.3"
-      - cosign/sign_image:
+      - cosign/sign:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
 
 workflows:
@@ -120,7 +120,7 @@ In your deployment pipeline or on any machine with the public key:
 ```yaml
 steps:
   - cosign/install
-  - cosign/verify_image:
+  - cosign/verify:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       # Uses COSIGN_PUBLIC_KEY from context
 ```
@@ -130,7 +130,7 @@ steps:
 Add metadata to your signatures to track build provenance:
 
 ```yaml
-- cosign/sign_image:
+- cosign/sign:
     image: "myregistry.com/myimage:${CIRCLE_SHA1}"
     annotations: "commit=${CIRCLE_SHA1},pipeline=${CIRCLE_PIPELINE_NUMBER},branch=${CIRCLE_BRANCH}"
 ```
@@ -181,7 +181,7 @@ steps:
   - cosign/install
   - cosign/sign_blob:
       blob: "./release.tar.gz"
-      signature_output: "./release.tar.gz.sig"
+      output_signature: "./release.tar.gz.sig"
   - cosign/verify_blob:
       blob: "./release.tar.gz"
       signature: "./release.tar.gz.sig"
