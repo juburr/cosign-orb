@@ -435,6 +435,11 @@ jobs:
           name: Start registry:2 on localhost:5000
           command: |
             # mirror.gcr.io serves the Docker Hub registry:2 image without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before starting the container.
+            for attempt in 1 2 3; do
+              docker pull mirror.gcr.io/library/registry:2 && break
+              sleep $((attempt * 10))
+            done
             docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
             for i in $(seq 1 30); do
               curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
@@ -545,6 +550,11 @@ jobs:
           name: Start registry:2 on localhost:5000
           command: |
             # mirror.gcr.io serves the Docker Hub registry:2 image without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before starting the container.
+            for attempt in 1 2 3; do
+              docker pull mirror.gcr.io/library/registry:2 && break
+              sleep $((attempt * 10))
+            done
             docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
             for i in $(seq 1 30); do
               curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
