@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Tests for the image signature check in src/scripts/verify_image.sh.
+# Tests for the image signature check in src/scripts/verify.sh.
 #
 # Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key as an image
-# signature, including an attestation. verify_image must fail unless one of
+# signature, including an attestation. verify must fail unless one of
 # the payloads Cosign verified is an image signature.
 #
 # Run from a checkout:
-#   bash test/verify_image_test.sh
+#   bash test/verify_test.sh
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPT="${VERIFY_IMAGE_SCRIPT:-${ROOT}/src/scripts/verify_image.sh}"
+SCRIPT="${VERIFY_SCRIPT:-${ROOT}/src/scripts/verify.sh}"
 LIB="${ROOT}/src/scripts/lib/bundle_format.sh"
 
 TMP="$(mktemp -d)"
@@ -127,4 +127,4 @@ if [[ "$FAILURES" -ne 0 ]]; then
   printf '\n%d failure(s)\n' "$FAILURES"
   exit 1
 fi
-printf '\nAll verify_image signature tests passed.\n'
+printf '\nAll verify signature tests passed.\n'

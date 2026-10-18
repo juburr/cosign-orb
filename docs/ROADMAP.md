@@ -22,8 +22,8 @@ This roadmap prioritizes features based on:
 | `install` | Download and install Cosign with SHA-512 verification | N/A |
 | `check_oidc` | Verify CircleCI OIDC token availability | N/A |
 | `generate_key_pair` | Generate a Cosign key pair for testing | N/A |
-| `sign_image` | Sign container images | Private key or keyless (OIDC) |
-| `verify_image` | Verify image signatures | Public key or keyless |
+| `sign` | Sign container images | Private key or keyless (OIDC) |
+| `verify` | Verify image signatures | Public key or keyless |
 | `sign_blob` | Sign arbitrary files | Private key (base64) |
 | `verify_blob` | Verify blob signatures | Public key (base64) |
 | `attest` | Attach attestations (SBOM, SLSA, etc.) | Private key or keyless (OIDC) |
@@ -437,7 +437,7 @@ parameters:
 - Air-gapped environments where cloud KMS cannot trust external OIDC providers
 - Legacy integrations being migrated incrementally
 
-### Enhanced `sign_image` Command
+### Enhanced `sign` Command
 Add support for KMS key references with OIDC-first authentication:
 
 ```yaml
@@ -905,8 +905,8 @@ The implementation order prioritizes eliminating stored secrets:
 
 | Cosign Command | Current Orb | Status |
 |----------------|-------------|--------|
-| sign | sign_image | ✅ Implemented (private key + keyless) |
-| verify | verify_image | ✅ Implemented (public key + keyless) |
+| sign | sign | ✅ Implemented (private key + keyless) |
+| verify | verify | ✅ Implemented (public key + keyless) |
 | attest | attest | ✅ Implemented (private key + keyless) |
 | verify-attestation | verify_attestation | ✅ Implemented (public key + keyless) |
 | generate-key-pair | generate_key_pair | ✅ Implemented |

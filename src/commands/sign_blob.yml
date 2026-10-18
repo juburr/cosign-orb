@@ -3,9 +3,11 @@ parameters:
   blob:
     type: string
     description: Path to the file to sign.
-  signature_output:
+  output_signature:
     type: string
-    description: Path to write the signature. If empty, signature goes to stdout.
+    description: |
+      Path of the file to write the signature to (Cosign's --output-signature).
+      If empty, the signature is printed to stdout.
     default: ""
   keyless:
     type: boolean
@@ -13,21 +15,22 @@ parameters:
       Use keyless signing via CircleCI OIDC. When enabled, signs using Fulcio certificates
       and records signatures in the Rekor transparency log. No private key required.
       Requires CIRCLE_OIDC_TOKEN to be available (CircleCI Cloud or Server 4.x+).
-      When using keyless mode, certificate_output is required to save the Fulcio certificate.
+      When using keyless mode, output_certificate is required to save the Fulcio certificate.
     default: false
-  certificate_output:
+  output_certificate:
     type: string
     description: |
-      Path to write the Fulcio certificate (keyless only). Required when keyless is true.
+      Path of the file to write the Fulcio certificate to (Cosign's --output-certificate).
+      Keyless only, and required when keyless is true.
       The certificate is needed for verification alongside the signature.
     default: ""
   private_key:
     type: env_var_name
-    description: Base-64 encoded private key. Ignored when keyless is true.
+    description: Name of the environment variable that holds the base64-encoded private key. Ignored when keyless is true.
     default: COSIGN_PRIVATE_KEY
   password:
     type: env_var_name
-    description: Password to use the private key. Ignored when keyless is true.
+    description: Name of the environment variable that holds the password for the private key. Ignored when keyless is true.
     default: COSIGN_PASSWORD
   fulcio_url:
     type: string
@@ -48,9 +51,9 @@ steps:
       name: Sign blob
       environment:
         PARAM_BLOB: << parameters.blob >>
-        PARAM_SIGNATURE_OUTPUT: << parameters.signature_output >>
+        PARAM_OUTPUT_SIGNATURE: << parameters.output_signature >>
         PARAM_KEYLESS: << parameters.keyless >>
-        PARAM_CERTIFICATE_OUTPUT: << parameters.certificate_output >>
+        PARAM_OUTPUT_CERTIFICATE: << parameters.output_certificate >>
         PARAM_PRIVATE_KEY: << parameters.private_key >>
         PARAM_PASSWORD: << parameters.password >>
         PARAM_FULCIO_URL: << parameters.fulcio_url >>

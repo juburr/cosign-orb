@@ -96,7 +96,7 @@ private_key_sign_flags() {
             if [[ "${format}" == "bundle" ]]; then
                 if ! cosign_has_bundle_flag 2 "${subcommand}"; then
                     bundle_format_log "ERROR: This Cosign 2 release cannot write Sigstore bundles with 'cosign ${subcommand}'."
-                    bundle_format_log "bundle_format bundle needs Cosign 2.6.0 or later for sign_image, and 2.5.0 or later for attest."
+                    bundle_format_log "bundle_format bundle needs Cosign 2.6.0 or later for sign, and 2.5.0 or later for attest."
                     return 1
                 fi
                 # Not --signing-config: with one, Cosign 2.6.5 attest labels the
@@ -202,7 +202,7 @@ verify_format_flags() {
                 # Older Cosign 2 releases only read legacy objects here.
                 if [[ "${format}" == "bundle" ]]; then
                     bundle_format_log "ERROR: This Cosign 2 release cannot read Sigstore bundles with 'cosign ${subcommand}'."
-                    bundle_format_log "bundle_format bundle needs Cosign 2.6.0 or later for verify_image, and 2.5.0 or later for verify_attestation."
+                    bundle_format_log "bundle_format bundle needs Cosign 2.6.0 or later for verify, and 2.5.0 or later for verify_attestation."
                     return 1
                 fi
                 return 0

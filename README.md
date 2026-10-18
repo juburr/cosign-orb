@@ -29,7 +29,7 @@ Keyless or private key · Public Sigstore or fully private infrastructure · Cos
 ```yaml
 steps:
   - cosign/install
-  - cosign/sign_image:
+  - cosign/sign:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       keyless: true   # No keys to create, store, or rotate
 ```
@@ -49,9 +49,9 @@ Container image signing is a critical component of software supply chain securit
 
 ```mermaid
 flowchart LR
-    build["🏗️ Build and push"] --> sign["🔏 cosign/sign_image"]
+    build["🏗️ Build and push"] --> sign["🔏 cosign/sign"]
     sign --> attest["📜 cosign/attest<br/>SBOM · provenance · scans"]
-    attest --> verify["✅ cosign/verify_image<br/>cosign/verify_attestation"]
+    attest --> verify["✅ cosign/verify<br/>cosign/verify_attestation"]
     verify -->|verified| deploy["🚀 Deploy"]
     verify -.->|tampered or unsigned| stop["⛔ Pipeline stops"]
 
@@ -163,11 +163,11 @@ jobs:
             docker build -t myregistry.com/myimage:${CIRCLE_SHA1} .
             docker push myregistry.com/myimage:${CIRCLE_SHA1}
       - cosign/install
-      - cosign/sign_image:
+      - cosign/sign:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           # No keys required! Uses CircleCI OIDC token automatically
-      - cosign/verify_image:
+      - cosign/verify:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           # Identity and issuer auto-detected for same-project verification
@@ -211,7 +211,7 @@ jobs:
             docker push myregistry.com/myimage:${CIRCLE_SHA1}
       - cosign/install:
           version: "3.1.3"
-      - cosign/sign_image:
+      - cosign/sign:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
 ```
@@ -247,8 +247,8 @@ jobs:
 | `install` | Download and install Cosign with checksum verification |
 | `check_oidc` | Verify CircleCI OIDC token availability for keyless signing |
 | `generate_key_pair` | Generate a Cosign key pair (for development/testing) |
-| `sign_image` | Sign a container image (supports private key or keyless modes) |
-| `verify_image` | Verify a container image signature |
+| `sign` | Sign a container image (supports private key or keyless modes) |
+| `verify` | Verify a container image signature |
 | `sign_blob` | Sign an arbitrary file (blob) using a private key |
 | `verify_blob` | Verify a blob signature |
 | `attest` | Attach an attestation (SBOM, provenance, etc.) to an image (supports private key or keyless modes) |
@@ -272,12 +272,13 @@ Copy-paste snippets for common tasks. Each one assumes the orb is imported as `c
 ```yaml
 steps:
   - cosign/install
-  - cosign/generate_key_pair:
-      password: "my-test-password"
+  - cosign/generate_key_pair
   # Keys are now available as COSIGN_PRIVATE_KEY, COSIGN_PUBLIC_KEY, COSIGN_PASSWORD
-  - cosign/sign_image:
+  - cosign/sign:
       image: "myregistry.com/myimage:latest"
 ```
+
+The password is random unless the variable named by `password_env_var` (`COSIGN_PASSWORD` by default) is already set, for example from a context. It is never passed as a parameter.
 
 ### Sign with Annotations
 
@@ -286,22 +287,22 @@ Add metadata to your signatures with annotations:
 ```yaml
 steps:
   - cosign/install
-  - cosign/sign_image:
+  - cosign/sign:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       annotations: "build.commit=${CIRCLE_SHA1},build.pipeline=${CIRCLE_PIPELINE_NUMBER}"
 ```
 
 ### Sign by Digest (Images, Helm Charts, and Other OCI Artifacts)
 
-`sign_image` and `attest` always sign a digest. Pass either a tag or a digest:
+`sign` and `attest` always sign a digest. Pass either a tag or a digest:
 
 ```yaml
 steps:
   - cosign/install
-  - cosign/sign_image:
+  - cosign/sign:
       # Signed exactly as given, after checking that the registry serves this digest
       image: "ghcr.io/my-org/charts/my-chart@sha256:<64 hex characters>"
-  - cosign/sign_image:
+  - cosign/sign:
       # Resolved to registry.example.com:5000/team/app@sha256:... first; the registry port is kept
       image: "registry.example.com:5000/team/app:1.2.3"
 ```
@@ -316,12 +317,12 @@ Only `sha256` digests are accepted, because that is what Cosign's reference pars
 
 ### Pin the Signature Storage Format
 
-Cosign can store signatures and attestations in two layouts, and its default changed between major versions. Set `bundle_format` on `sign_image`, `attest`, `verify_image` and `verify_attestation` so a Cosign upgrade cannot silently change what lands in your registry:
+Cosign can store signatures and attestations in two layouts, and its default changed between major versions. Set `bundle_format` on `sign`, `attest`, `verify` and `verify_attestation` so a Cosign upgrade cannot silently change what lands in your registry:
 
 ```yaml
 steps:
   - cosign/install
-  - cosign/sign_image:
+  - cosign/sign:
       image: "ghcr.io/my-org/app@sha256:<64 hex characters>"
       bundle_format: bundle
   - cosign/attest:
@@ -329,12 +330,12 @@ steps:
       predicate: "./sbom.spdx.json"
       predicate_type: "spdxjson"
       bundle_format: bundle
-  - cosign/verify_image:
+  - cosign/verify:
       image: "ghcr.io/my-org/app@sha256:<64 hex characters>"
       bundle_format: bundle
 ```
 
-| `bundle_format` | What `sign_image` and `attest` write for subject `sha256:<hex>` |
+| `bundle_format` | What `sign` and `attest` write for subject `sha256:<hex>` |
 |-----------------|--------------------------------------------------------------|
 | `auto` (default) | Whatever the installed Cosign writes by default: `legacy` for Cosign 1 and 2, `bundle` for Cosign 3 (including the orb's default, 3.1.3). |
 | `bundle` | One Sigstore bundle (`application/vnd.dev.sigstore.bundle.v0.3+json`) per signature or attestation, in an OCI 1.1 manifest whose `subject` is the digest. The manifest annotation `dev.sigstore.bundle.predicateType` is `https://sigstore.dev/cosign/sign/v1` for signatures, or the attestation's predicate type. Registries with the OCI referrers API index these natively. Other registries get an image index under the tag `sha256-<hex>` that lists them. Every run adds a new manifest. |
@@ -350,7 +351,7 @@ With a private key, both formats skip the transparency log. On the verify comman
 
 | | `bundle` | `legacy` |
 |---|---|---|
-| Cosign support | Write: Cosign 2.6.0+ (`sign_image`), 2.5.0+ (`attest`), and 3.x. Read: Cosign 2.6.0+ (`verify_image`), 2.5.0+ (`verify_attestation`), 3.x. | Every Cosign version. Cosign 3 deprecates it and plans to remove it in Cosign 4. In Cosign 3, private-key signing without a transparency log needs the deprecated `--tlog-upload=false --use-signing-config=false` flags. |
+| Cosign support | Write: Cosign 2.6.0+ (`sign`), 2.5.0+ (`attest`), and 3.x. Read: Cosign 2.6.0+ (`verify`), 2.5.0+ (`verify_attestation`), 3.x. | Every Cosign version. Cosign 3 deprecates it and plans to remove it in Cosign 4. In Cosign 3, private-key signing without a transparency log needs the deprecated `--tlog-upload=false --use-signing-config=false` flags. |
 | Offline verification (`cosign save`, then `cosign verify --local-image`) | Works with Cosign 3.1.3 when the subject is a single image manifest (for example a Helm chart). Fails when the subject is an image index (for example a multi-platform image), and fails on Cosign 2.6.5. The saved layout stores the bundles as blobs that `index.json` does not list; Cosign 3 finds them by scanning the blobs. | Works with Cosign 2 and 3, for image manifests and image indexes. `index.json` lists the signatures and attestations (annotation `kind`: `dev.cosignproject.cosign/sigs` and `.../atts`). |
 | Other tools | Need OCI referrers and Sigstore bundle support. | Read by older policy engines and admission controllers that only know `.sig`/`.att` tags. |
 
@@ -362,17 +363,17 @@ With a private key, both formats skip the transparency log. On the verify comman
 ```yaml
 steps:
   - cosign/install
-  - cosign/verify_image:
+  - cosign/verify:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       # Requires COSIGN_PUBLIC_KEY in your context
 ```
 
 > [!NOTE]
-> `verify_image` passes only when Cosign verified an image signature. Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key or identity, including an attestation, as a signature. An image that was attested but never signed therefore fails `verify_image`; check its attestations with `verify_attestation`.
+> `verify` passes only when Cosign verified an image signature. Cosign 2.6+ and 3 accept any Sigstore bundle signed by the key or identity, including an attestation, as a signature. An image that was attested but never signed therefore fails `verify`; check its attestations with `verify_attestation`.
 
 An image can carry a legacy signature next to Sigstore bundle attestations, for example when it was signed with `bundle_format: legacy` and attested with Cosign 3's default. Cosign checks only bundles when an image has any:
 
-- With Cosign 3 and `bundle_format: auto`, `verify_image` then checks the legacy signatures too.
+- With Cosign 3 and `bundle_format: auto`, `verify` then checks the legacy signatures too.
 - With `bundle_format: legacy`, Cosign 3 is limited to legacy signatures.
 - Cosign 2.6.3 and later can't be limited to legacy signatures, so they can't verify such an image. Use Cosign 3, or sign in the bundle format.
 
@@ -383,7 +384,7 @@ Verify images signed with keyless signing. When verifying images signed by the *
 ```yaml
 steps:
   - cosign/install
-  - cosign/verify_image:
+  - cosign/verify:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       keyless: true
       # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
@@ -395,7 +396,7 @@ For **cross-project** or **cross-organization** verification, specify the signin
 ```yaml
 steps:
   - cosign/install
-  - cosign/verify_image:
+  - cosign/verify:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       keyless: true
       certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
@@ -411,7 +412,7 @@ steps:
   - cosign/install
   - cosign/sign_blob:
       blob: "./artifact.tar.gz"
-      signature_output: "./artifact.tar.gz.sig"
+      output_signature: "./artifact.tar.gz.sig"
       # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in your context
   - cosign/verify_blob:
       blob: "./artifact.tar.gz"
@@ -429,8 +430,8 @@ steps:
   - cosign/sign_blob:
       blob: "./artifact.tar.gz"
       keyless: true
-      signature_output: "./artifact.tar.gz.sig"
-      certificate_output: "./artifact.tar.gz.crt"  # Required for keyless blob signing
+      output_signature: "./artifact.tar.gz.sig"
+      output_certificate: "./artifact.tar.gz.crt"  # Required for keyless blob signing
       # No keys required! Uses CircleCI OIDC token automatically
   - cosign/verify_blob:
       blob: "./artifact.tar.gz"
@@ -533,18 +534,18 @@ The job never connects to `oidc.circleci.com`. Private Sigstore deployments repl
   - `release-assets.githubusercontent.com`: GitHub redirects release downloads here.
   - `objects.githubusercontent.com`: GitHub's earlier redirect target for release downloads. Allow it as well, because GitHub has used both.
   - CircleCI's cache storage, because `caching` defaults to `true` and `install` then runs `restore_cache` and `save_cache`. On CircleCI Cloud, the runner FAQ lists `circleci-tasks-prod.s3.us-east-1.amazonaws.com` for this. On CircleCI Server, it is the object storage your installation is configured with. Allow it, or set `caching: false`.
-- **Container registries** (`sign_image`, `attest`, `verify_image`, `verify_attestation`): every registry you sign or verify images in, including the hosts it sends clients to. A registry often issues tokens from a separate authentication host and serves layers from a storage or CDN host. Cosign, `crane` and `docker` all follow those redirects. For example:
+- **Container registries** (`sign`, `attest`, `verify`, `verify_attestation`): every registry you sign or verify images in, including the hosts it sends clients to. A registry often issues tokens from a separate authentication host and serves layers from a storage or CDN host. Cosign, `crane` and `docker` all follow those redirects. For example:
   - Docker Hub: `index.docker.io` / `registry-1.docker.io`, tokens from `auth.docker.io`, layers from `production.cloudflare.docker.com`.
   - GitHub Container Registry: `ghcr.io`, layers from `pkg-containers.githubusercontent.com`.
 - **Signing and verifying with a private key**: nothing beyond the registries in most cases, because the transparency log is turned off. `sign_blob` and `verify_blob` need no network access at all. Two exceptions:
   - `tuf-repo-cdn.sigstore.dev` when Cosign 2 verifies signatures or attestations stored as Sigstore bundles (Cosign 3's default format). Cosign 2 needs the Sigstore trusted root for bundles even with a key.
-  - Cosign 1 with `COSIGN_EXPERIMENTAL=1` exported in the job. That variable turns the transparency log back on: `sign_blob` uploads its signature to `rekor.sigstore.dev`, and the verify commands look entries up in `rekor.sigstore.dev` and `tuf-repo-cdn.sigstore.dev` (so `verify_image` and `verify_attestation` fail for signatures made without the log). Don't export it in jobs that use the private-key commands with Cosign 1.
-- **Keyless signing** (`sign_image`, `attest`, `sign_blob` with `keyless: true`):
+  - Cosign 1 with `COSIGN_EXPERIMENTAL=1` exported in the job. That variable turns the transparency log back on: `sign_blob` uploads its signature to `rekor.sigstore.dev`, and the verify commands look entries up in `rekor.sigstore.dev` and `tuf-repo-cdn.sigstore.dev` (so `verify` and `verify_attestation` fail for signatures made without the log). Don't export it in jobs that use the private-key commands with Cosign 1.
+- **Keyless signing** (`sign`, `attest`, `sign_blob` with `keyless: true`):
   - `fulcio.sigstore.dev`, or your `fulcio_url`: short-lived signing certificates.
   - `rekor.sigstore.dev`, or your `rekor_url`: transparency log uploads.
   - `tuf-repo-cdn.sigstore.dev`: the Sigstore trusted root (Fulcio, Rekor and certificate transparency log public keys), fetched over TUF. Cosign checks the signing responses against it.
 - **Keyless verification** (`keyless: true`):
-  - `verify_image` and `verify_attestation`: `tuf-repo-cdn.sigstore.dev` only. Fulcio and Rekor are not contacted, because the certificate and the transparency log proof are stored with the signature in the registry and checked offline against the trusted root.
+  - `verify` and `verify_attestation`: `tuf-repo-cdn.sigstore.dev` only. Fulcio and Rekor are not contacted, because the certificate and the transparency log proof are stored with the signature in the registry and checked offline against the trusted root.
   - `verify_blob`: `tuf-repo-cdn.sigstore.dev` and `rekor.sigstore.dev`. A blob's signature file carries no transparency log proof, so Cosign looks the entry up in Rekor. If the blob was signed with a custom `rekor_url`, export `COSIGN_REKOR_URL` with that URL in the job, because `verify_blob` has no Rekor parameter and Cosign otherwise searches `rekor.sigstore.dev`.
   - The verify commands have no `fulcio_url` or `rekor_url`.
 - **Private Sigstore deployments**: setting `fulcio_url` and `rekor_url` is not enough on its own. Cosign must also trust that deployment's Fulcio, Rekor and certificate transparency log keys, for signing as well as verification. Initialize Cosign from the deployment's TUF mirror before signing or verifying (for example `cosign initialize --mirror <url> --root <root.json>`), and allow that mirror instead of `tuf-repo-cdn.sigstore.dev`. `<root.json>` is the trust anchor for everything the mirror serves, so provision it through a trusted channel, such as a file in your repository or runner image, rather than fetching it from the mirror it is meant to authenticate. If you pass a URL instead, also pass `--root-checksum` (Cosign 2.4.2 and later). Without it, Cosign trusts whatever that URL serves and only prints a deprecation warning. See [Sigstore's custom components guide](https://docs.sigstore.dev/cosign/system_config/custom_components/).
@@ -587,6 +588,23 @@ cosign generate-key-pair
 
 ## 📣 Upgrade Notes
 
+### Unreleased: renamed commands and parameters
+
+These renames are breaking. Update your configuration when you upgrade:
+
+| Old | New |
+|-----|-----|
+| `sign_image` | `sign` |
+| `verify_image` | `verify` |
+| `sign_blob`: `signature_output` | `output_signature` |
+| `sign_blob`: `certificate_output` | `output_certificate` |
+| `generate_key_pair`: `password` | removed |
+| `generate_key_pair`: `private_key_var` | `private_key_env_var` |
+| `generate_key_pair`: `public_key_var` | `public_key_env_var` |
+| `generate_key_pair`: `password_var` | `password_env_var` |
+
+`generate_key_pair` no longer takes the password as a literal parameter. To choose one, set the variable named by `password_env_var` (`COSIGN_PASSWORD` by default) before the step, for example from a context. Otherwise a random password is generated, as before. The three `_env_var` parameters are now `env_var_name`s, and the exports written to `$BASH_ENV` are shell-quoted, so a password may contain quotes or other shell syntax.
+
 ### v0.10.0: arm64 support
 
 `install` now detects the runner's architecture and installs `cosign-linux-arm64` on `aarch64` machines, verified against a separate arm64 checksum table. The table covers Cosign 1.9.0 and later; older releases fail on arm64 under the default `strict` mode. Other architectures fail with an error instead of installing an amd64 binary. Cache keys now include the architecture, so the first run after upgrading downloads Cosign again.
@@ -626,23 +644,22 @@ Expand a command to see its parameters.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `password` | string | `""` | Password to encrypt the private key (random if empty) |
-| `private_key_var` | string | `COSIGN_PRIVATE_KEY` | Environment variable for base64-encoded private key |
-| `public_key_var` | string | `COSIGN_PUBLIC_KEY` | Environment variable for base64-encoded public key |
-| `password_var` | string | `COSIGN_PASSWORD` | Environment variable for the password |
+| `private_key_env_var` | env_var_name | `COSIGN_PRIVATE_KEY` | Name of the environment variable to write the base64-encoded private key to |
+| `public_key_env_var` | env_var_name | `COSIGN_PUBLIC_KEY` | Name of the environment variable to write the base64-encoded public key to |
+| `password_env_var` | env_var_name | `COSIGN_PASSWORD` | Name of the environment variable that holds the private key's password. Its value is used when set and not empty; otherwise a random password is generated. Either way the password is written to this variable |
 
 </details>
 
 <details>
-<summary><b><code>sign_image</code></b> · Sign a container image or OCI artifact</summary>
+<summary><b><code>sign</code></b> · Sign a container image or OCI artifact</summary>
 <br>
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `image` | string | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`) |
 | `keyless` | boolean | `false` | Use keyless signing via CircleCI OIDC (no keys required) |
-| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
-| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Name of the environment variable that holds the base64-encoded private key (ignored if keyless) |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Name of the environment variable that holds the password for the private key (ignored if keyless) |
 | `annotations` | string | `""` | Comma-separated key=value pairs to add to signature (e.g., `"env=prod,team=platform"`) |
 | `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
 | `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
@@ -652,14 +669,14 @@ Expand a command to see its parameters.
 </details>
 
 <details>
-<summary><b><code>verify_image</code></b> · Verify a container image signature</summary>
+<summary><b><code>verify</code></b> · Verify a container image signature</summary>
 <br>
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `image` | string | *required* | Full image reference (e.g., `registry.com/image:tag`) |
 | `keyless` | boolean | `false` | Use keyless verification via certificate identity matching |
-| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key (ignored if keyless) |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Name of the environment variable that holds the base64-encoded public key (ignored if keyless) |
 | `certificate_identity` | string | *auto-detected* | Expected identity in Fulcio certificate (keyless only). Auto-detected from `CIRCLE_PROJECT_ID` if not provided. |
 | `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
 | `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
@@ -675,11 +692,11 @@ Expand a command to see its parameters.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `blob` | string | *required* | Path to the file to sign |
-| `signature_output` | string | `""` (stdout) | Path to write the signature |
+| `output_signature` | string | `""` (stdout) | Path of the file to write the signature to |
 | `keyless` | boolean | `false` | Use keyless signing via CircleCI OIDC (no keys required) |
-| `certificate_output` | string | `""` | Path to write the Fulcio certificate (required when keyless is true) |
-| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
-| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
+| `output_certificate` | string | `""` | Path of the file to write the Fulcio certificate to (required when keyless is true) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Name of the environment variable that holds the base64-encoded private key (ignored if keyless) |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Name of the environment variable that holds the password for the private key (ignored if keyless) |
 | `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
 | `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
 | `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
@@ -696,7 +713,7 @@ Expand a command to see its parameters.
 | `signature` | string | *required* | Path to the signature file |
 | `keyless` | boolean | `false` | Use keyless verification via certificate identity matching |
 | `certificate` | string | `""` | Path to the certificate file (required when keyless is true) |
-| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key (ignored if keyless) |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Name of the environment variable that holds the base64-encoded public key (ignored if keyless) |
 | `certificate_identity` | string | *auto-detected* | Expected identity in Fulcio certificate (keyless only). Auto-detected from `CIRCLE_PROJECT_ID` if not provided. |
 | `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
 | `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |
@@ -714,8 +731,8 @@ Expand a command to see its parameters.
 | `predicate` | string | *required* | Path to predicate file |
 | `predicate_type` | string | *required* | Attestation type (e.g., `spdxjson`, `cyclonedx`, `slsaprovenance`) |
 | `keyless` | boolean | `false` | Use keyless attestation via CircleCI OIDC (no keys required) |
-| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Environment variable containing base64-encoded private key (ignored if keyless) |
-| `password` | env_var_name | `COSIGN_PASSWORD` | Environment variable containing key password (ignored if keyless) |
+| `private_key` | env_var_name | `COSIGN_PRIVATE_KEY` | Name of the environment variable that holds the base64-encoded private key (ignored if keyless) |
+| `password` | env_var_name | `COSIGN_PASSWORD` | Name of the environment variable that holds the password for the private key (ignored if keyless) |
 | `fulcio_url` | string | `https://fulcio.sigstore.dev` | Fulcio CA URL (keyless only) |
 | `rekor_url` | string | `https://rekor.sigstore.dev` | Rekor transparency log URL (keyless only) |
 | `oidc_issuer` | string | `https://oidc.circleci.com/org/<org-id>` | OIDC issuer URL (auto-detected from CIRCLE_ORGANIZATION_ID, keyless only) |
@@ -732,7 +749,7 @@ Expand a command to see its parameters.
 | `image` | string | *required* | Full image reference |
 | `predicate_type` | string | *required* | Attestation type to verify (e.g., `spdxjson`, `cyclonedx`, `slsaprovenance`) |
 | `keyless` | boolean | `false` | Use keyless verification via certificate identity matching |
-| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Environment variable containing base64-encoded public key (ignored if keyless) |
+| `public_key` | env_var_name | `COSIGN_PUBLIC_KEY` | Name of the environment variable that holds the base64-encoded public key (ignored if keyless) |
 | `certificate_identity` | string | *auto-detected* | Expected identity in Fulcio certificate (keyless only). Auto-detected from `CIRCLE_PROJECT_ID` if not provided. |
 | `certificate_identity_regexp` | string | *auto-detected* | Regex pattern for certificate identity (keyless only). Auto-generated from `CIRCLE_PROJECT_ID` if identity not provided. |
 | `certificate_oidc_issuer` | string | *auto-detected* | Expected OIDC issuer in certificate (keyless only). Auto-detected from `CIRCLE_ORGANIZATION_ID` if not provided. |

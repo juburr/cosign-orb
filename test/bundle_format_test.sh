@@ -242,7 +242,7 @@ run_counter_error_cases() {
   classify "no output" "" fail
 }
 
-# sign_image and attest create a temporary signing config. Their cleanup must
+# sign and attest create a temporary signing config. Their cleanup must
 # never delete a SIGNING_CONFIG path inherited from the job environment.
 run_signing_config_cleanup_cases() {
   local stub="${TMP}/cleanup-bin" user_config="${TMP}/user-signing-config.json" tmp_dir script keyless
@@ -267,7 +267,7 @@ exit 1
 EOF
   chmod +x "${stub}/cosign" "${stub}/circleci"
 
-  for script in sign_image attest; do
+  for script in sign attest; do
     for keyless in 1 0; do
       printf '{"user":"config"}\n' > "$user_config"
       tmp_dir="$(mktemp -d "${TMP}/tmpdir.XXXXXX")"
@@ -336,7 +336,7 @@ EOF
   pin "unexpected triangulate output" "ghcr.io/org/app:v1" "ghcr.io/org/app:v1.sig" 0 fail
 }
 
-# verify_image and verify_attestation must run both verifications against the
+# verify and verify_attestation must run both verifications against the
 # same pinned digest when a tag is given.
 run_pinned_script_cases() {
   local stub="${TMP}/verify-bin" hex log="${TMP}/verify.log" script subcommand
@@ -373,7 +373,7 @@ exit 1
 EOF
   chmod +x "${stub}/cosign" "${stub}/circleci"
 
-  for script in verify_image verify_attestation; do
+  for script in verify verify_attestation; do
     subcommand=verify
     [[ "$script" == "verify_attestation" ]] && subcommand=verify-attestation
     : > "$log"

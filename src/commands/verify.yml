@@ -12,7 +12,7 @@ parameters:
     default: false
   public_key:
     type: env_var_name
-    description: Base-64 encoded public key. Ignored when keyless is true.
+    description: Name of the environment variable that holds the base64-encoded public key. Ignored when keyless is true.
     default: COSIGN_PUBLIC_KEY
   certificate_identity:
     type: string
@@ -65,4 +65,4 @@ steps:
         PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP: << parameters.certificate_oidc_issuer_regexp >>
         PARAM_BUNDLE_FORMAT: << parameters.bundle_format >>
         SCRIPT_BUNDLE_FORMAT_LIB: << include(scripts/lib/bundle_format.sh) >>
-      command: << include(scripts/verify_image.sh) >>
+      command: << include(scripts/verify.sh) >>

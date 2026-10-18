@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Shared image reference helpers. Commands load this file through an
-# environment variable (see sign_image.yml and attest.yml) and eval it, so it
+# environment variable (see sign.yml and attest.yml) and eval it, so it
 # must only define functions.
 #
 # resolve_image_uri_digest prints REPOSITORY@sha256:<hex> for a reference:

@@ -21,11 +21,11 @@ parameters:
     default: false
   private_key:
     type: env_var_name
-    description: Environment variable that holds the base-64 encoded private key. Ignored when keyless is true.
+    description: Name of the environment variable that holds the base64-encoded private key. Ignored when keyless is true.
     default: COSIGN_PRIVATE_KEY
   password:
     type: env_var_name
-    description: Environment variable that holds the password for the private key. Ignored when keyless is true.
+    description: Name of the environment variable that holds the password for the private key. Ignored when keyless is true.
     default: COSIGN_PASSWORD
   fulcio_url:
     type: string
@@ -48,7 +48,7 @@ parameters:
     description: |
       How the attestation is stored in the registry. Set this to pin the layout so a Cosign upgrade cannot change it.
       auto: no format flags; Cosign's own default (legacy for Cosign 1 and 2, bundle for Cosign 3).
-      bundle: a Sigstore bundle stored as an OCI 1.1 referrer of the subject. Needs Cosign 2.6.0+ for sign_image, 2.5.0+ for attest.
+      bundle: a Sigstore bundle stored as an OCI 1.1 referrer of the subject. Needs Cosign 2.6.0+ for sign, 2.5.0+ for attest.
       legacy: a sha256-<hex>.sig / .att image tag next to the subject. Deprecated by Cosign 3 and planned for removal in Cosign 4.
       With keyless signing, only auto and the Cosign major's own default are supported.
 steps:

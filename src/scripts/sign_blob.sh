@@ -10,7 +10,7 @@ set +o history
 
 # Read in orb parameters
 BLOB=$(printf '%s' "${PARAM_BLOB}" | circleci env subst)
-SIGNATURE_OUTPUT=$(printf '%s' "${PARAM_SIGNATURE_OUTPUT}" | circleci env subst)
+OUTPUT_SIGNATURE=$(printf '%s' "${PARAM_OUTPUT_SIGNATURE}" | circleci env subst)
 KEYLESS="${PARAM_KEYLESS:-false}"
 # Normalize boolean: CircleCI passes "true"/"false" strings, but also accept "1"/"0"
 if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
@@ -18,7 +18,7 @@ if [[ "${KEYLESS}" == "true" ]] || [[ "${KEYLESS}" == "1" ]]; then
 else
     KEYLESS="0"
 fi
-CERTIFICATE_OUTPUT=$(printf '%s' "${PARAM_CERTIFICATE_OUTPUT:-}" | circleci env subst)
+OUTPUT_CERTIFICATE=$(printf '%s' "${PARAM_OUTPUT_CERTIFICATE:-}" | circleci env subst)
 FULCIO_URL="${PARAM_FULCIO_URL:-https://fulcio.sigstore.dev}"
 REKOR_URL="${PARAM_REKOR_URL:-https://rekor.sigstore.dev}"
 
@@ -85,9 +85,9 @@ if [[ "${KEYLESS}" == "1" ]]; then
     echo "  OIDC Issuer: ${OIDC_ISSUER}"
     echo ""
 
-    # Validate certificate_output is provided for keyless mode
-    if [[ -z "${CERTIFICATE_OUTPUT}" ]]; then
-        echo "ERROR: certificate_output is required for keyless blob signing."
+    # Validate output_certificate is provided for keyless mode
+    if [[ -z "${OUTPUT_CERTIFICATE}" ]]; then
+        echo "ERROR: output_certificate is required for keyless blob signing."
         echo ""
         echo "Unlike image signing where certificates are stored in the registry,"
         echo "blob signing requires you to save the certificate to a file for verification."
@@ -96,15 +96,15 @@ if [[ "${KEYLESS}" == "1" ]]; then
         echo "  cosign/sign_blob:"
         echo "    blob: \"./artifact.tar.gz\""
         echo "    keyless: true"
-        echo "    signature_output: \"./artifact.tar.gz.sig\""
-        echo "    certificate_output: \"./artifact.tar.gz.crt\""
+        echo "    output_signature: \"./artifact.tar.gz.sig\""
+        echo "    output_certificate: \"./artifact.tar.gz.crt\""
         exit 1
     fi
-    echo "Certificate output: ${CERTIFICATE_OUTPUT}"
+    echo "Certificate output: ${OUTPUT_CERTIFICATE}"
 
     # Build output signature flag if specified
-    if [[ -n "${SIGNATURE_OUTPUT}" ]]; then
-        echo "Signature output: ${SIGNATURE_OUTPUT}"
+    if [[ -n "${OUTPUT_SIGNATURE}" ]]; then
+        echo "Signature output: ${OUTPUT_SIGNATURE}"
     else
         echo "Signature output: stdout"
     fi
@@ -139,14 +139,14 @@ if [[ "${KEYLESS}" == "1" ]]; then
 
     if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
         # Cosign v1 requires COSIGN_EXPERIMENTAL=1 and explicit --identity-token
-        if [[ -n "${SIGNATURE_OUTPUT}" ]]; then
+        if [[ -n "${OUTPUT_SIGNATURE}" ]]; then
             COSIGN_EXPERIMENTAL=1 cosign sign-blob \
                 --fulcio-url="${FULCIO_URL}" \
                 --rekor-url="${REKOR_URL}" \
                 --oidc-issuer="${OIDC_ISSUER}" \
                 --identity-token="${SIGSTORE_ID_TOKEN}" \
-                --output-signature="${SIGNATURE_OUTPUT}" \
-                --output-certificate="${CERTIFICATE_OUTPUT}" \
+                --output-signature="${OUTPUT_SIGNATURE}" \
+                --output-certificate="${OUTPUT_CERTIFICATE}" \
                 -y \
                 "${BLOB}"
         else
@@ -155,19 +155,19 @@ if [[ "${KEYLESS}" == "1" ]]; then
                 --rekor-url="${REKOR_URL}" \
                 --oidc-issuer="${OIDC_ISSUER}" \
                 --identity-token="${SIGSTORE_ID_TOKEN}" \
-                --output-certificate="${CERTIFICATE_OUTPUT}" \
+                --output-certificate="${OUTPUT_CERTIFICATE}" \
                 -y \
                 "${BLOB}"
         fi
     elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
         # Cosign v2
-        if [[ -n "${SIGNATURE_OUTPUT}" ]]; then
+        if [[ -n "${OUTPUT_SIGNATURE}" ]]; then
             cosign sign-blob \
                 --fulcio-url="${FULCIO_URL}" \
                 --rekor-url="${REKOR_URL}" \
                 --oidc-issuer="${OIDC_ISSUER}" \
-                --output-signature="${SIGNATURE_OUTPUT}" \
-                --output-certificate="${CERTIFICATE_OUTPUT}" \
+                --output-signature="${OUTPUT_SIGNATURE}" \
+                --output-certificate="${OUTPUT_CERTIFICATE}" \
                 --yes \
                 "${BLOB}"
         else
@@ -175,20 +175,20 @@ if [[ "${KEYLESS}" == "1" ]]; then
                 --fulcio-url="${FULCIO_URL}" \
                 --rekor-url="${REKOR_URL}" \
                 --oidc-issuer="${OIDC_ISSUER}" \
-                --output-certificate="${CERTIFICATE_OUTPUT}" \
+                --output-certificate="${OUTPUT_CERTIFICATE}" \
                 --yes \
                 "${BLOB}"
         fi
     else
         # Cosign v3: must disable signing config when specifying explicit URLs
         # Also disable new bundle format to use legacy --output-signature/--output-certificate
-        if [[ -n "${SIGNATURE_OUTPUT}" ]]; then
+        if [[ -n "${OUTPUT_SIGNATURE}" ]]; then
             cosign sign-blob \
                 --fulcio-url="${FULCIO_URL}" \
                 --rekor-url="${REKOR_URL}" \
                 --oidc-issuer="${OIDC_ISSUER}" \
-                --output-signature="${SIGNATURE_OUTPUT}" \
-                --output-certificate="${CERTIFICATE_OUTPUT}" \
+                --output-signature="${OUTPUT_SIGNATURE}" \
+                --output-certificate="${OUTPUT_CERTIFICATE}" \
                 --yes \
                 --use-signing-config=false \
                 --new-bundle-format=false \
@@ -198,7 +198,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
                 --fulcio-url="${FULCIO_URL}" \
                 --rekor-url="${REKOR_URL}" \
                 --oidc-issuer="${OIDC_ISSUER}" \
-                --output-certificate="${CERTIFICATE_OUTPUT}" \
+                --output-certificate="${OUTPUT_CERTIFICATE}" \
                 --yes \
                 --use-signing-config=false \
                 --new-bundle-format=false \
@@ -209,9 +209,9 @@ if [[ "${KEYLESS}" == "1" ]]; then
     echo ""
     echo "=== Keyless Signing Complete ==="
     echo "Blob signed: ${BLOB}"
-    echo "Certificate saved to: ${CERTIFICATE_OUTPUT}"
-    if [[ -n "${SIGNATURE_OUTPUT}" ]]; then
-        echo "Signature saved to: ${SIGNATURE_OUTPUT}"
+    echo "Certificate saved to: ${OUTPUT_CERTIFICATE}"
+    if [[ -n "${OUTPUT_SIGNATURE}" ]]; then
+        echo "Signature saved to: ${OUTPUT_SIGNATURE}"
     fi
     echo "Signature recorded in Rekor transparency log"
     exit 0
@@ -257,9 +257,9 @@ echo "Set private key permissions: 0400"
 
 # Build output signature flag if specified
 OUTPUT_FLAG=""
-if [[ -n "${SIGNATURE_OUTPUT}" ]]; then
-    OUTPUT_FLAG="--output-signature=${SIGNATURE_OUTPUT}"
-    echo "Signature output: ${SIGNATURE_OUTPUT}"
+if [[ -n "${OUTPUT_SIGNATURE}" ]]; then
+    OUTPUT_FLAG="--output-signature=${OUTPUT_SIGNATURE}"
+    echo "Signature output: ${OUTPUT_SIGNATURE}"
 else
     echo "Signature output: stdout"
 fi
