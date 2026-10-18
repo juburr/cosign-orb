@@ -90,7 +90,7 @@ flowchart LR
 ### 🛡️ Hardened by Default
 
 - Every Cosign download checked against a known SHA-512, failing closed on unknown versions
-- Keys locked to `0400` and destroyed with `shred` after use
+- Keys written to a private temporary directory, locked to `0400` and destroyed with `shred` after use
 - Follows CircleCI's [security recommendations](https://circleci.com/docs/security-recommendations/) for secrets
 - No `sudo`. No telemetry.
 
@@ -135,7 +135,7 @@ flowchart LR
 | **Signing without a public log** | Different flags for each Cosign major: `--no-tlog-upload` (v1), `--tlog-upload=false` (v2), an empty signing config (v3) | Chosen for you from the installed Cosign version |
 | **Keyless signing** | Request a token with `circleci run oidc get`, work out your organization's issuer URL, and pass both to Cosign | `keyless: true` |
 | **Keyless verification** | Build the certificate identity and issuer patterns from your organization and project IDs | Detected automatically when verifying images from the same project |
-| **Private key handling** | Decode the key, restrict its permissions, and wipe it afterwards, even when a step fails | Written with `0400` permissions and destroyed with `shred` when the step exits, whether it passed or failed |
+| **Private key handling** | Decode the key, restrict its permissions, and wipe it afterwards, even when a step fails | Written with `0400` permissions to a private temporary directory, never the working directory, and destroyed with `shred` when the step exits, whether it passed or failed |
 | **Cosign upgrades** | Cosign 3 changed the default signature storage format | `bundle_format` pins the format, and the verify commands enforce it |
 
 ## 🚀 Quick Start
@@ -604,6 +604,10 @@ These renames are breaking. Update your configuration when you upgrade:
 | `generate_key_pair`: `password_var` | `password_env_var` |
 
 `generate_key_pair` no longer takes the password as a literal parameter. To choose one, set the variable named by `password_env_var` (`COSIGN_PASSWORD` by default) before the step, for example from a context. Otherwise a random password is generated, as before. The three `_env_var` parameters are now `env_var_name`s, and the exports written to `$BASH_ENV` are shell-quoted, so a password may contain quotes or other shell syntax.
+
+### Unreleased: key files and messages
+
+`sign`, `attest`, `sign_blob`, the verify commands and `generate_key_pair` now write `cosign.key` and `cosign.pub` to a private temporary directory instead of the working directory, so a `cosign.key` or `cosign.pub` in your checkout is no longer overwritten and deleted. Error and warning messages now go to stderr, and warnings start with `WARN:` instead of `WARNING:`.
 
 ### v0.10.0: arm64 support
 

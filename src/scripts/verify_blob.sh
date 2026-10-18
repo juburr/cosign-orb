@@ -5,8 +5,7 @@
 #   1. Public key verification - Traditional verification with a public key
 #   2. Keyless verification - Verify using certificate identity and OIDC issuer
 
-set -e
-set +o history
+set -euo pipefail
 
 # Read in orb parameters
 BLOB=$(printf '%s' "${PARAM_BLOB}" | circleci env subst)
@@ -26,14 +25,23 @@ CERTIFICATE_OIDC_ISSUER_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER_RE
 
 # Only read key-related params if not using keyless
 if [[ "${KEYLESS}" != "1" ]]; then
-    COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
+    COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY:-}
 fi
+
+# Private directory for the decoded key. A cosign.pub in the working directory
+# is often the project's own public key, and may be a symlink that would
+# redirect the write. Start empty so the cleanup trap never removes a KEY_DIR
+# inherited from the job environment.
+KEY_DIR=""
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    if [ -f cosign.pub ]; then
-        shred -vzuf -n 10 cosign.pub 2> /dev/null || true
+    if [[ -n "${KEY_DIR:-}" ]]; then
+        if [ -f "${KEY_DIR}/cosign.pub" ]; then
+            shred -vzuf -n 10 "${KEY_DIR}/cosign.pub" 2> /dev/null || true
+        fi
+        rm -rf "${KEY_DIR}"
     fi
     unset PARAM_PUBLIC_KEY
     unset COSIGN_PUBLIC_KEY
@@ -42,24 +50,25 @@ cleanup_secrets() {
 trap cleanup_secrets EXIT
 
 # Verify Cosign version is supported
-COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
+# A failure here leaves the version empty, which the check below reports.
+COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-) || true
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
 if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
-    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
+    echo "ERROR: Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}" >&2
     exit 1
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Verify the blob file exists
 if [[ ! -f "${BLOB}" ]]; then
-    echo "ERROR: Blob file does not exist: ${BLOB}"
+    echo "ERROR: Blob file does not exist: ${BLOB}" >&2
     exit 1
 fi
 echo "Blob file: ${BLOB}"
 
 # Verify the signature file exists
 if [[ ! -f "${SIGNATURE}" ]]; then
-    echo "ERROR: Signature file does not exist: ${SIGNATURE}"
+    echo "ERROR: Signature file does not exist: ${SIGNATURE}" >&2
     exit 1
 fi
 echo "Signature file: ${SIGNATURE}"
@@ -73,23 +82,23 @@ if [[ "${KEYLESS}" == "1" ]]; then
 
     # Validate certificate file is provided for keyless mode
     if [[ -z "${CERTIFICATE}" ]]; then
-        echo "ERROR: certificate is required for keyless blob verification."
-        echo ""
-        echo "Unlike image verification where certificates are retrieved from the registry,"
-        echo "blob verification requires the certificate file saved during signing."
-        echo ""
-        echo "Example:"
-        echo "  cosign/verify_blob:"
-        echo "    blob: \"./artifact.tar.gz\""
-        echo "    signature: \"./artifact.tar.gz.sig\""
-        echo "    certificate: \"./artifact.tar.gz.crt\""
-        echo "    keyless: true"
+        echo "ERROR: certificate is required for keyless blob verification." >&2
+        echo "" >&2
+        echo "Unlike image verification where certificates are retrieved from the registry," >&2
+        echo "blob verification requires the certificate file saved during signing." >&2
+        echo "" >&2
+        echo "Example:" >&2
+        echo "  cosign/verify_blob:" >&2
+        echo "    blob: \"./artifact.tar.gz\"" >&2
+        echo "    signature: \"./artifact.tar.gz.sig\"" >&2
+        echo "    certificate: \"./artifact.tar.gz.crt\"" >&2
+        echo "    keyless: true" >&2
         exit 1
     fi
 
     # Verify the certificate file exists
     if [[ ! -f "${CERTIFICATE}" ]]; then
-        echo "ERROR: Certificate file does not exist: ${CERTIFICATE}"
+        echo "ERROR: Certificate file does not exist: ${CERTIFICATE}" >&2
         exit 1
     fi
     echo "Certificate file: ${CERTIFICATE}"
@@ -124,9 +133,9 @@ if [[ "${KEYLESS}" == "1" ]]; then
         IDENTITY_FLAGS+=("--certificate-identity=${EFFECTIVE_IDENTITY}")
     elif [[ -n "${EFFECTIVE_IDENTITY_REGEXP}" ]]; then
         if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-            echo "WARNING: Cosign v1 does not support --certificate-identity-regexp"
-            echo "Skipping identity verification (issuer will still be verified)."
-            echo "For full identity verification, upgrade to Cosign v2+."
+            echo "WARN: Cosign v1 does not support --certificate-identity-regexp" >&2
+            echo "Skipping identity verification (issuer will still be verified)." >&2
+            echo "For full identity verification, upgrade to Cosign v2+." >&2
             # In v1, omitting --certificate-identity skips that check
         else
             echo "Certificate identity regexp: ${EFFECTIVE_IDENTITY_REGEXP}"
@@ -134,11 +143,11 @@ if [[ "${KEYLESS}" == "1" ]]; then
         fi
     else
         if [ "${COSIGN_MAJOR_VERSION}" != "1" ]; then
-            echo "ERROR: Keyless verification requires either certificate_identity or certificate_identity_regexp"
-            echo ""
-            echo "You can either:"
-            echo "  1. Provide certificate_identity or certificate_identity_regexp parameter"
-            echo "  2. Run in a CircleCI environment where CIRCLE_PROJECT_ID is available"
+            echo "ERROR: Keyless verification requires either certificate_identity or certificate_identity_regexp" >&2
+            echo "" >&2
+            echo "You can either:" >&2
+            echo "  1. Provide certificate_identity or certificate_identity_regexp parameter" >&2
+            echo "  2. Run in a CircleCI environment where CIRCLE_PROJECT_ID is available" >&2
             exit 1
         fi
         # v1 allows skipping identity check
@@ -151,18 +160,18 @@ if [[ "${KEYLESS}" == "1" ]]; then
         IDENTITY_FLAGS+=("--certificate-oidc-issuer=${EFFECTIVE_OIDC_ISSUER}")
     elif [[ -n "${EFFECTIVE_OIDC_ISSUER_REGEXP}" ]]; then
         if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-            echo "ERROR: Cosign v1 does not support --certificate-oidc-issuer-regexp"
-            echo "Use certificate_oidc_issuer with an exact match, or upgrade to Cosign v2+."
+            echo "ERROR: Cosign v1 does not support --certificate-oidc-issuer-regexp" >&2
+            echo "Use certificate_oidc_issuer with an exact match, or upgrade to Cosign v2+." >&2
             exit 1
         fi
         echo "Certificate OIDC issuer regexp: ${EFFECTIVE_OIDC_ISSUER_REGEXP}"
         IDENTITY_FLAGS+=("--certificate-oidc-issuer-regexp=${EFFECTIVE_OIDC_ISSUER_REGEXP}")
     else
-        echo "ERROR: Keyless verification requires either certificate_oidc_issuer or certificate_oidc_issuer_regexp"
-        echo ""
-        echo "You can either:"
-        echo "  1. Provide certificate_oidc_issuer or certificate_oidc_issuer_regexp parameter"
-        echo "  2. Run in a CircleCI environment where CIRCLE_ORGANIZATION_ID is available"
+        echo "ERROR: Keyless verification requires either certificate_oidc_issuer or certificate_oidc_issuer_regexp" >&2
+        echo "" >&2
+        echo "You can either:" >&2
+        echo "  1. Provide certificate_oidc_issuer or certificate_oidc_issuer_regexp parameter" >&2
+        echo "  2. Run in a CircleCI environment where CIRCLE_ORGANIZATION_ID is available" >&2
         exit 1
     fi
 
@@ -198,36 +207,39 @@ fi
 echo ""
 echo "=== Public Key Verification Mode ==="
 
-# Load public key, normally a base64 encoded secret within a CircleCI context
+# Load public key, normally a base64 encoded secret within a CircleCI context,
+# into KEY_DIR rather than the working directory.
 if [[ -z "${COSIGN_PUBLIC_KEY}" ]]; then
-    echo "ERROR: Public key is empty. Check that the environment variable is set correctly."
+    echo "ERROR: Public key is empty. Check that the environment variable is set correctly." >&2
     exit 1
 fi
+if ! KEY_DIR=$(umask 077 && mktemp -d); then
+    echo "ERROR: Could not create a private temporary directory for the public key." >&2
+    exit 1
+fi
+KEY_FILE="${KEY_DIR}/cosign.pub"
 # Use printf instead of echo for more predictable handling of special characters
-if ! printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign.pub 2>&1; then
-    echo "ERROR: Failed to decode public key. Ensure it is valid base64."
+if ! (umask 077 && printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > "${KEY_FILE}" 2>&1); then
+    echo "ERROR: Failed to decode public key. Ensure it is valid base64." >&2
     exit 1
 fi
-if [[ ! -s cosign.pub ]]; then
-    echo "ERROR: Decoded public key is empty."
+if [[ ! -s "${KEY_FILE}" ]]; then
+    echo "ERROR: Decoded public key is empty." >&2
     exit 1
 fi
-echo "Wrote public key: cosign.pub"
-chmod 0400 cosign.pub
+echo "Wrote public key: ${KEY_FILE}"
+chmod 0400 "${KEY_FILE}"
 echo "Set public key permissions: 0400"
 
 # Verify blob signature using the public key
 echo "Verifying cosign signature for ${BLOB}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    cosign verify-blob --key cosign.pub --signature "${SIGNATURE}" "${BLOB}"
+    cosign verify-blob --key "${KEY_FILE}" --signature "${SIGNATURE}" "${BLOB}"
 else
     # Cosign v2 and v3: --private-infrastructure flag works in both versions
-    cosign verify-blob --key cosign.pub --signature "${SIGNATURE}" --private-infrastructure "${BLOB}"
+    cosign verify-blob --key "${KEY_FILE}" --signature "${SIGNATURE}" --private-infrastructure "${BLOB}"
 fi
 
 echo ""
 echo "=== Public Key Verification Complete ==="
 echo "Blob verified: ${BLOB}"
-
-# Cleanup
-rm -f cosign.pub

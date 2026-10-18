@@ -156,6 +156,7 @@ cosign verify --key cosign.pub \
 ### Secret Hygiene
 
 The orb follows these security practices automatically:
+- The key is decoded into a private temporary directory, never the working directory
 - Private key file permissions set to `0400` (owner read-only)
 - Keys destroyed with `shred -vzuf -n 10` after use
 - Environment variables unset after signing completes

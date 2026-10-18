@@ -88,8 +88,16 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 - No `sudo` usage - installs to user-owned directories
 - Keys passed via environment variables (base64-encoded); credential parameters are `env_var_name`s, never literal secrets
 - `generate_key_pair` uses the password already in the variable named by `password_env_var`, or generates a random one, and writes its exports to `$BASH_ENV` with `printf 'export %s=%q\n'` so no value can break or inject into later steps (`test/generate_key_pair_test.sh`)
-- Secure cleanup using `shred -vzuf -n 10` for key files
-- Private key permissions set to 0400
+- Key files (`cosign.key`, `cosign.pub`) are written to a private `mktemp -d` directory created under `umask 077`, never the working directory, where they would overwrite (and the cleanup would then shred) a project's own key files or follow a symlink. `generate_key_pair` runs `cosign generate-key-pair` inside that directory in a subshell. Keys are set to 0400, and the script's single EXIT trap shreds them with `shred -vzuf -n 10` and removes the directory (`test/key_files_test.sh`, `test/generate_key_pair_test.sh`)
+
+### Shell conventions
+
+Every script under `src/scripts/` except the shared install code follows the conventions all juburr orbs share; `test/shell_conventions_test.sh` (identical in every orb, never edit it) checks the mechanical ones:
+- `#!/bin/bash`, then `set -euo pipefail` as the first command (libraries in `lib/` have no `set` line). Read optional and indirectly named variables as `${VAR:-}` / `${!name:-}`.
+- No `set +o history`, never enable xtrace. Scripts that handle a key, password or token run `set +o xtrace` with a one-line comment.
+- Messages start with `ERROR: ` or `WARN: ` and go to stderr, continuation lines included. Every non-zero exit prints an `ERROR:` line first.
+- `$BASH_ENV` exports use `printf 'export %s=%q\n'`. `eval` only runs `"${..._LIB}"` / `"${..._SCRIPT}"`.
+- Secrets never go on a command line. Secret and temporary files come from `mktemp`, are removed by the script's one EXIT trap, and never use fixed names.
 
 ## Key Files
 

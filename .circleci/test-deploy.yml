@@ -707,9 +707,12 @@ jobs:
   test-check-oidc:
     executor: docker-executor
     steps:
+      # Names only: the values include CIRCLE_OIDC_TOKEN, which CircleCI
+      # doesn't mask and which is enough to get a Sigstore certificate for
+      # this project's identity while it is valid.
       - run:
-          name: Dump Environment Variables (sorted)
-          command: env | sort
+          name: List environment variable names (sorted)
+          command: env | cut -d= -f1 | sort
       - cosign-orb/check_oidc
 
   # Integration test: sign and verify blob with Cosign v1

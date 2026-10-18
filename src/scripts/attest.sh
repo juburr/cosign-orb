@@ -5,8 +5,9 @@
 #   1. Private key attestation - Traditional attestation with a pre-generated key
 #   2. Keyless attestation - OIDC-based attestation via Fulcio/Rekor (no key management)
 
-set -e
-set +o history
+set -euo pipefail
+# A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the key and password.
+set +o xtrace
 
 # Read in orb parameters
 IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
@@ -41,23 +42,32 @@ fi
 
 # Only read key-related params if not using keyless
 if ! is_keyless_enabled; then
-    COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
+    COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY:-}
 
     # COSIGN_PASSWORD is a special env var used by the Cosign tool, and must be exported for
     # it to be used by Cosign. Setting it here prevents the "cosign attest" command from prompting
     # for a password in the CI pipeline.
     if ! type export | grep -q 'export is a shell builtin'; then
-        echo "The export command is not a shell builtin. It is not safe to proceed."
+        echo "ERROR: The export command is not a shell builtin. It is not safe to proceed." >&2
         exit 1
     fi
-    export COSIGN_PASSWORD=${!PARAM_PASSWORD}
+    export COSIGN_PASSWORD=${!PARAM_PASSWORD:-}
 fi
+
+# Private directory for the decoded key. A cosign.key in the working directory
+# may be the project's own file, or a symlink that would redirect the write.
+# Start empty so the cleanup trap never removes a KEY_DIR inherited from the
+# job environment.
+KEY_DIR=""
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    if [ -f cosign.key ]; then
-        shred -vzuf -n 10 cosign.key 2> /dev/null || true
+    if [[ -n "${KEY_DIR:-}" ]]; then
+        if [ -f "${KEY_DIR}/cosign.key" ]; then
+            shred -vzuf -n 10 "${KEY_DIR}/cosign.key" 2> /dev/null || true
+        fi
+        rm -rf "${KEY_DIR}"
     fi
     if [[ -n "${SIGNING_CONFIG:-}" ]]; then
         rm -f "${SIGNING_CONFIG}"
@@ -71,10 +81,11 @@ cleanup_secrets() {
 trap cleanup_secrets EXIT
 
 # Verify Cosign version is supported
-COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
+# A failure here leaves the version empty, which the check below reports.
+COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-) || true
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
 if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
-    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
+    echo "ERROR: Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}" >&2
     cleanup_secrets
     exit 1
 fi
@@ -82,7 +93,7 @@ echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Load the shared helpers (src/scripts/lib/image_ref.sh and bundle_format.sh).
 if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" || -z "${SCRIPT_BUNDLE_FORMAT_LIB:-}" ]]; then
-    echo "ERROR: The shared helpers were not loaded. SCRIPT_IMAGE_REF_LIB or SCRIPT_BUNDLE_FORMAT_LIB is empty."
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_IMAGE_REF_LIB or SCRIPT_BUNDLE_FORMAT_LIB is empty." >&2
     exit 1
 fi
 eval "${SCRIPT_IMAGE_REF_LIB}"
@@ -103,7 +114,7 @@ echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 # Determine the image digest
 echo "Determining image URI digest..."
 if ! IMAGE_URI_DIGEST=$(resolve_image_uri_digest "${IMAGE}"); then
-    echo "ERROR: Could not determine the digest for ${IMAGE}."
+    echo "ERROR: Could not determine the digest for ${IMAGE}." >&2
     exit 1
 fi
 echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
@@ -124,22 +135,22 @@ if is_keyless_enabled; then
     # The default CIRCLE_OIDC_TOKEN has org ID as audience, but Fulcio expects "sigstore"
     echo "Requesting OIDC token with Sigstore audience..."
     if ! command -v circleci &> /dev/null; then
-        echo "ERROR: CircleCI CLI is not installed."
-        echo "The circleci CLI is required to request OIDC tokens with custom audience."
+        echo "ERROR: CircleCI CLI is not installed." >&2
+        echo "The circleci CLI is required to request OIDC tokens with custom audience." >&2
         exit 1
     fi
 
     SIGSTORE_ID_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
     if [[ -z "${SIGSTORE_ID_TOKEN:-}" ]]; then
-        echo "ERROR: Failed to get OIDC token from CircleCI."
-        echo ""
-        echo "Keyless attestation requires CircleCI OIDC to be enabled."
-        echo "Please ensure:"
-        echo "  1. You are using CircleCI Cloud or Server 4.x+"
-        echo "  2. OIDC is enabled for your organization"
-        echo "  3. Your plan supports OIDC tokens"
-        echo ""
-        echo "Run the 'check_oidc' command to diagnose OIDC issues."
+        echo "ERROR: Failed to get OIDC token from CircleCI." >&2
+        echo "" >&2
+        echo "Keyless attestation requires CircleCI OIDC to be enabled." >&2
+        echo "Please ensure:" >&2
+        echo "  1. You are using CircleCI Cloud or Server 4.x+" >&2
+        echo "  2. OIDC is enabled for your organization" >&2
+        echo "  3. Your plan supports OIDC tokens" >&2
+        echo "" >&2
+        echo "Run the 'check_oidc' command to diagnose OIDC issues." >&2
         exit 1
     fi
     export SIGSTORE_ID_TOKEN
@@ -200,27 +211,34 @@ fi
 echo ""
 echo "=== Private Key Attestation Mode ==="
 
-# Load the private key, normally a base64 encoded secret within a CircleCI context
+# Load the private key, normally a base64 encoded secret within a CircleCI context,
+# into KEY_DIR rather than the working directory.
 # Note that a Cosign v2 key used with Cosign v1 may throw: unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY
 if [[ -z "${COSIGN_PRIVATE_KEY}" ]]; then
-    echo "ERROR: Private key is empty. Check that the environment variable is set correctly."
+    echo "ERROR: Private key is empty. Check that the environment variable is set correctly." >&2
     cleanup_secrets
     exit 1
 fi
+if ! KEY_DIR=$(umask 077 && mktemp -d); then
+    echo "ERROR: Could not create a private temporary directory for the private key." >&2
+    cleanup_secrets
+    exit 1
+fi
+KEY_FILE="${KEY_DIR}/cosign.key"
 # Use printf instead of echo for more predictable handling of special characters
 # The || true prevents set -e from exiting on decode failure; we check the result below
-if ! printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key 2>&1; then
-    echo "ERROR: Failed to decode private key. Ensure it is valid base64."
+if ! (umask 077 && printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > "${KEY_FILE}" 2>&1); then
+    echo "ERROR: Failed to decode private key. Ensure it is valid base64." >&2
     cleanup_secrets
     exit 1
 fi
-if [[ ! -s cosign.key ]]; then
-    echo "ERROR: Decoded private key is empty."
+if [[ ! -s "${KEY_FILE}" ]]; then
+    echo "ERROR: Decoded private key is empty." >&2
     cleanup_secrets
     exit 1
 fi
-echo "Wrote private key: cosign.key"
-chmod 0400 cosign.key
+echo "Wrote private key: ${KEY_FILE}"
+chmod 0400 "${KEY_FILE}"
 echo "Set private key permissions: 0400"
 
 # Attest the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log.
@@ -230,7 +248,7 @@ echo "  Predicate Type: ${PREDICATE_TYPE}"
 cosign attest \
     --predicate "${PREDICATE}" \
     --type "${PREDICATE_TYPE}" \
-    --key cosign.key \
+    --key "${KEY_FILE}" \
     "${BUNDLE_FORMAT_FLAGS[@]}" \
     "${IMAGE_URI_DIGEST}"
 rm -f "${SIGNING_CONFIG}"

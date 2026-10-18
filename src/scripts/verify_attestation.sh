@@ -5,8 +5,7 @@
 #   1. Public key verification - Traditional verification with a public key
 #   2. Keyless verification - Verify using certificate identity and OIDC issuer
 
-set -e
-set +o history
+set -euo pipefail
 
 # Read in orb parameters
 IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
@@ -27,14 +26,23 @@ is_keyless_enabled() {
 
 # Only read key-related params if not using keyless
 if ! is_keyless_enabled; then
-    COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY}
+    COSIGN_PUBLIC_KEY=${!PARAM_PUBLIC_KEY:-}
 fi
+
+# Private directory for the decoded key. A cosign.pub in the working directory
+# is often the project's own public key, and may be a symlink that would
+# redirect the write. Start empty so the cleanup trap never removes a KEY_DIR
+# inherited from the job environment.
+KEY_DIR=""
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    if [ -f cosign.pub ]; then
-        shred -vzuf -n 10 cosign.pub 2> /dev/null || true
+    if [[ -n "${KEY_DIR:-}" ]]; then
+        if [ -f "${KEY_DIR}/cosign.pub" ]; then
+            shred -vzuf -n 10 "${KEY_DIR}/cosign.pub" 2> /dev/null || true
+        fi
+        rm -rf "${KEY_DIR}"
     fi
     unset PARAM_PUBLIC_KEY
     unset COSIGN_PUBLIC_KEY
@@ -43,17 +51,18 @@ cleanup_secrets() {
 trap cleanup_secrets EXIT
 
 # Verify Cosign version is supported
-COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
+# A failure here leaves the version empty, which the check below reports.
+COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-) || true
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
 if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
-    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
+    echo "ERROR: Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}" >&2
     exit 1
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Load the shared format helpers (src/scripts/lib/bundle_format.sh).
 if [[ -z "${SCRIPT_BUNDLE_FORMAT_LIB:-}" ]]; then
-    echo "ERROR: The shared helpers were not loaded. SCRIPT_BUNDLE_FORMAT_LIB is empty."
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_BUNDLE_FORMAT_LIB is empty." >&2
     exit 1
 fi
 eval "${SCRIPT_BUNDLE_FORMAT_LIB}"
@@ -106,9 +115,9 @@ if is_keyless_enabled; then
         IDENTITY_FLAGS+=("--certificate-identity=${EFFECTIVE_IDENTITY}")
     elif [[ -n "${EFFECTIVE_IDENTITY_REGEXP}" ]]; then
         if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-            echo "WARNING: Cosign v1 does not support --certificate-identity-regexp"
-            echo "Skipping identity verification (issuer will still be verified)."
-            echo "For full identity verification, upgrade to Cosign v2+."
+            echo "WARN: Cosign v1 does not support --certificate-identity-regexp" >&2
+            echo "Skipping identity verification (issuer will still be verified)." >&2
+            echo "For full identity verification, upgrade to Cosign v2+." >&2
             # In v1, omitting --certificate-identity skips that check
         else
             echo "Certificate identity regexp: ${EFFECTIVE_IDENTITY_REGEXP}"
@@ -116,11 +125,11 @@ if is_keyless_enabled; then
         fi
     else
         if [ "${COSIGN_MAJOR_VERSION}" != "1" ]; then
-            echo "ERROR: Keyless verification requires either certificate_identity or certificate_identity_regexp"
-            echo ""
-            echo "You can either:"
-            echo "  1. Provide certificate_identity or certificate_identity_regexp parameter"
-            echo "  2. Run in a CircleCI environment where CIRCLE_PROJECT_ID is available"
+            echo "ERROR: Keyless verification requires either certificate_identity or certificate_identity_regexp" >&2
+            echo "" >&2
+            echo "You can either:" >&2
+            echo "  1. Provide certificate_identity or certificate_identity_regexp parameter" >&2
+            echo "  2. Run in a CircleCI environment where CIRCLE_PROJECT_ID is available" >&2
             exit 1
         fi
         # v1 allows skipping identity check
@@ -133,18 +142,18 @@ if is_keyless_enabled; then
         IDENTITY_FLAGS+=("--certificate-oidc-issuer=${EFFECTIVE_OIDC_ISSUER}")
     elif [[ -n "${EFFECTIVE_OIDC_ISSUER_REGEXP}" ]]; then
         if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-            echo "ERROR: Cosign v1 does not support --certificate-oidc-issuer-regexp"
-            echo "Use certificate_oidc_issuer with an exact match, or upgrade to Cosign v2+."
+            echo "ERROR: Cosign v1 does not support --certificate-oidc-issuer-regexp" >&2
+            echo "Use certificate_oidc_issuer with an exact match, or upgrade to Cosign v2+." >&2
             exit 1
         fi
         echo "Certificate OIDC issuer regexp: ${EFFECTIVE_OIDC_ISSUER_REGEXP}"
         IDENTITY_FLAGS+=("--certificate-oidc-issuer-regexp=${EFFECTIVE_OIDC_ISSUER_REGEXP}")
     else
-        echo "ERROR: Keyless verification requires either certificate_oidc_issuer or certificate_oidc_issuer_regexp"
-        echo ""
-        echo "You can either:"
-        echo "  1. Provide certificate_oidc_issuer or certificate_oidc_issuer_regexp parameter"
-        echo "  2. Run in a CircleCI environment where CIRCLE_ORGANIZATION_ID is available"
+        echo "ERROR: Keyless verification requires either certificate_oidc_issuer or certificate_oidc_issuer_regexp" >&2
+        echo "" >&2
+        echo "You can either:" >&2
+        echo "  1. Provide certificate_oidc_issuer or certificate_oidc_issuer_regexp parameter" >&2
+        echo "  2. Run in a CircleCI environment where CIRCLE_ORGANIZATION_ID is available" >&2
         exit 1
     fi
 
@@ -183,22 +192,28 @@ fi
 echo ""
 echo "=== Public Key Attestation Verification Mode ==="
 
-# Load public key, normally a base64 encoded secret within a CircleCI context
+# Load public key, normally a base64 encoded secret within a CircleCI context,
+# into KEY_DIR rather than the working directory.
 if [[ -z "${COSIGN_PUBLIC_KEY}" ]]; then
-    echo "ERROR: Public key is empty. Check that the environment variable is set correctly."
+    echo "ERROR: Public key is empty. Check that the environment variable is set correctly." >&2
     exit 1
 fi
+if ! KEY_DIR=$(umask 077 && mktemp -d); then
+    echo "ERROR: Could not create a private temporary directory for the public key." >&2
+    exit 1
+fi
+KEY_FILE="${KEY_DIR}/cosign.pub"
 # Use printf instead of echo for more predictable handling of special characters
-if ! printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign.pub 2>&1; then
-    echo "ERROR: Failed to decode public key. Ensure it is valid base64."
+if ! (umask 077 && printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > "${KEY_FILE}" 2>&1); then
+    echo "ERROR: Failed to decode public key. Ensure it is valid base64." >&2
     exit 1
 fi
-if [[ ! -s cosign.pub ]]; then
-    echo "ERROR: Decoded public key is empty."
+if [[ ! -s "${KEY_FILE}" ]]; then
+    echo "ERROR: Decoded public key is empty." >&2
     exit 1
 fi
-echo "Wrote public key: cosign.pub"
-chmod 0400 cosign.pub
+echo "Wrote public key: ${KEY_FILE}"
+chmod 0400 "${KEY_FILE}"
 echo "Set public key permissions: 0400"
 
 # Verify attestation using the public key
@@ -208,24 +223,21 @@ if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     # Cosign v1: tlog verification is experimental and off by default, no special flags needed
     cosign verify-attestation \
         --type "${PREDICATE_TYPE}" \
-        --key cosign.pub \
+        --key "${KEY_FILE}" \
         "${BUNDLE_FORMAT_FLAGS[@]}" \
         "${IMAGE}"
 else
     # Cosign v2 and v3: --private-infrastructure skips tlog verification
     cosign verify-attestation \
         --type "${PREDICATE_TYPE}" \
-        --key cosign.pub \
+        --key "${KEY_FILE}" \
         --private-infrastructure \
         "${BUNDLE_FORMAT_FLAGS[@]}" \
         "${IMAGE}"
     check_other_format_does_not_verify "${BUNDLE_FORMAT}" \
-        cosign verify-attestation --type "${PREDICATE_TYPE}" --key cosign.pub --private-infrastructure "${IMAGE}" || exit 1
+        cosign verify-attestation --type "${PREDICATE_TYPE}" --key "${KEY_FILE}" --private-infrastructure "${IMAGE}" || exit 1
 fi
 
 echo ""
 echo "=== Public Key Attestation Verification Complete ==="
 echo "Attestation verified: ${IMAGE}"
-
-# Cleanup
-rm -f cosign.pub
