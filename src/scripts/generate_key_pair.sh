@@ -7,15 +7,27 @@
 set -e
 set +o history
 
-# Read in orb parameters
-PASSWORD=$(printf '%s' "${PARAM_PASSWORD}" | circleci env subst)
-PRIVATE_KEY_VAR="${PARAM_PRIVATE_KEY_VAR}"
-PUBLIC_KEY_VAR="${PARAM_PUBLIC_KEY_VAR}"
-PASSWORD_VAR="${PARAM_PASSWORD_VAR}"
+# Read in orb parameters. Each one is the name of an environment variable.
+PRIVATE_KEY_ENV_VAR="${PARAM_PRIVATE_KEY_ENV_VAR}"
+PUBLIC_KEY_ENV_VAR="${PARAM_PUBLIC_KEY_ENV_VAR}"
+PASSWORD_ENV_VAR="${PARAM_PASSWORD_ENV_VAR}"
 
-# Generate a random password if none provided
-if [[ -z "${PASSWORD}" ]]; then
-    echo "No password provided, generating a random one..."
+# The names are written to BASH_ENV as they are, so each must be a valid
+# shell variable name.
+for name in "${PRIVATE_KEY_ENV_VAR}" "${PUBLIC_KEY_ENV_VAR}" "${PASSWORD_ENV_VAR}"; do
+    if [[ ! "${name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "ERROR: '${name}' is not a valid environment variable name."
+        exit 1
+    fi
+done
+
+# Use the password the variable named by password_env_var already holds.
+# Otherwise generate a random one.
+PASSWORD="${!PASSWORD_ENV_VAR:-}"
+if [[ -n "${PASSWORD}" ]]; then
+    echo "Using the password in ${PASSWORD_ENV_VAR}."
+else
+    echo "${PASSWORD_ENV_VAR} is empty or not set, generating a random password..."
     PASSWORD=$(openssl rand -base64 32)
 fi
 
@@ -50,16 +62,18 @@ echo "Encoding keys..."
 PRIVATE_KEY_B64=$(base64 -w0 cosign.key)
 PUBLIC_KEY_B64=$(base64 -w0 cosign.pub)
 
-# Export to BASH_ENV for use in subsequent steps
+# Export to BASH_ENV for use in subsequent steps. %q quotes each value for
+# the shell, so no character in the password can end the value early or run
+# as a command when later steps source BASH_ENV.
 echo "Exporting keys to environment variables..."
-echo "  ${PASSWORD_VAR} (password)"
-echo "  ${PRIVATE_KEY_VAR} (base64-encoded private key)"
-echo "  ${PUBLIC_KEY_VAR} (base64-encoded public key)"
+echo "  ${PASSWORD_ENV_VAR} (password)"
+echo "  ${PRIVATE_KEY_ENV_VAR} (base64-encoded private key)"
+echo "  ${PUBLIC_KEY_ENV_VAR} (base64-encoded public key)"
 
 {
-    echo "export ${PASSWORD_VAR}='${PASSWORD}'"
-    echo "export ${PRIVATE_KEY_VAR}='${PRIVATE_KEY_B64}'"
-    echo "export ${PUBLIC_KEY_VAR}='${PUBLIC_KEY_B64}'"
+    printf 'export %s=%q\n' "${PASSWORD_ENV_VAR}" "${PASSWORD}"
+    printf 'export %s=%q\n' "${PRIVATE_KEY_ENV_VAR}" "${PRIVATE_KEY_B64}"
+    printf 'export %s=%q\n' "${PUBLIC_KEY_ENV_VAR}" "${PUBLIC_KEY_B64}"
 } >> "${BASH_ENV}"
 
 echo ""

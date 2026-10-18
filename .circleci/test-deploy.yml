@@ -138,8 +138,7 @@ jobs:
               echo "ERROR: Expected v3.1.3, got ${VERSION}"
               exit 1
             fi
-      - cosign-orb/generate_key_pair:
-          password: "test-password-arm64"
+      - cosign-orb/generate_key_pair
       - run:
           name: Create test blob file
           command: |
@@ -147,7 +146,7 @@ jobs:
             echo "arm64 test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
       - cosign-orb/sign_blob:
           blob: testblob.txt
-          signature_output: testblob.txt.sig
+          output_signature: testblob.txt.sig
       - cosign-orb/verify_blob:
           blob: testblob.txt
           signature: testblob.txt.sig
@@ -170,6 +169,9 @@ jobs:
       - image: cimg/base:current-22.04
     environment:
       IMAGE_TTL: 1h
+      # A known password with a quote and spaces, so the generate_key_pair
+      # exports must quote it for the later steps to read the keys.
+      KEY_PAIR_PASSWORD: "test-password-v3 with a ' quote"
     steps:
       - checkout
       - setup_remote_docker:
@@ -177,7 +179,7 @@ jobs:
       - cosign-orb/install:
           version: "3.1.3"
       - cosign-orb/generate_key_pair:
-          password: "test-password-v3"
+          password_env_var: KEY_PAIR_PASSWORD
       - run:
           name: Generate unique image reference
           command: |
@@ -196,10 +198,11 @@ jobs:
             # Push directly to ttl.sh (anonymous push supported)
             docker push "${IMAGE_REF}"
             echo "Pushed test image to ${IMAGE_REF}"
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_REF}
+          password: KEY_PAIR_PASSWORD
           annotations: "build.source=circleci,build.version=v3"
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_REF}
       - run:
           name: Verify annotations are present in signature
@@ -216,6 +219,7 @@ jobs:
             printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
       - cosign-orb/attest:
           image: ${IMAGE_REF}
+          password: KEY_PAIR_PASSWORD
           predicate: predicate.json
           predicate_type: slsaprovenance
       - cosign-orb/verify_attestation:
@@ -234,13 +238,15 @@ jobs:
             echo "Digest reference: ${IMAGE_DIGEST_REF}"
       # Digest reference on a registry without a port. The old parser turned
       # repo@sha256:<hex> into repo@sha256@sha256:<hex>.
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_DIGEST_REF}
+          password: KEY_PAIR_PASSWORD
       - cosign-orb/attest:
           image: ${IMAGE_DIGEST_REF}
+          password: KEY_PAIR_PASSWORD
           predicate: predicate.json
           predicate_type: slsaprovenance
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_DIGEST_REF}
       - cosign-orb/verify_attestation:
           image: ${IMAGE_DIGEST_REF}
@@ -252,6 +258,9 @@ jobs:
       - image: cimg/base:current-22.04
     environment:
       IMAGE_TTL: 1h
+      # A known password with a quote and spaces, so the generate_key_pair
+      # exports must quote it for the later steps to read the keys.
+      KEY_PAIR_PASSWORD: "test-password-v2 with a ' quote"
     steps:
       - checkout
       - setup_remote_docker:
@@ -259,7 +268,7 @@ jobs:
       - cosign-orb/install:
           version: "2.5.3"
       - cosign-orb/generate_key_pair:
-          password: "test-password-v2"
+          password_env_var: KEY_PAIR_PASSWORD
       - run:
           name: Generate unique image reference
           command: |
@@ -278,10 +287,11 @@ jobs:
             # Push directly to ttl.sh (anonymous push supported)
             docker push "${IMAGE_REF}"
             echo "Pushed test image to ${IMAGE_REF}"
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_REF}
+          password: KEY_PAIR_PASSWORD
           annotations: "build.source=circleci,build.version=v2"
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_REF}
       - run:
           name: Verify annotations are present in signature
@@ -298,6 +308,7 @@ jobs:
             printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
       - cosign-orb/attest:
           image: ${IMAGE_REF}
+          password: KEY_PAIR_PASSWORD
           predicate: predicate.json
           predicate_type: slsaprovenance
       - cosign-orb/verify_attestation:
@@ -311,6 +322,9 @@ jobs:
       - image: cimg/base:current-22.04
     environment:
       IMAGE_TTL: 1h
+      # A known password with a quote and spaces, so the generate_key_pair
+      # exports must quote it for the later steps to read the keys.
+      KEY_PAIR_PASSWORD: "test-password-v1 with a ' quote"
     steps:
       - checkout
       - setup_remote_docker:
@@ -318,7 +332,7 @@ jobs:
       - cosign-orb/install:
           version: "1.13.6"
       - cosign-orb/generate_key_pair:
-          password: "test-password-v1"
+          password_env_var: KEY_PAIR_PASSWORD
       - run:
           name: Generate unique image reference
           command: |
@@ -337,10 +351,11 @@ jobs:
             # Push directly to ttl.sh (anonymous push supported)
             docker push "${IMAGE_REF}"
             echo "Pushed test image to ${IMAGE_REF}"
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_REF}
+          password: KEY_PAIR_PASSWORD
           annotations: "build.source=circleci,build.version=v1"
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_REF}
       - run:
           name: Verify annotations are present in signature
@@ -358,6 +373,7 @@ jobs:
             printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
       - cosign-orb/attest:
           image: ${IMAGE_REF}
+          password: KEY_PAIR_PASSWORD
           predicate: predicate.json
           predicate_type: slsaprovenance
       - cosign-orb/verify_attestation:
@@ -367,7 +383,7 @@ jobs:
   # Integration test: image references against a registry with a port.
   # The registry runs on the machine's own Docker Engine, so cosign, crane and
   # docker all reach it at localhost:5000. Covers a tag reference and a digest
-  # reference for sign_image and attest, then verifies both by digest.
+  # reference for sign and attest, then verifies both by digest.
   integration-test-image-refs:
     parameters:
       digest_tool:
@@ -430,8 +446,7 @@ jobs:
       - cosign-orb/install:
           version: << parameters.version >>
           caching: false
-      - cosign-orb/generate_key_pair:
-          password: "test-password-image-refs"
+      - cosign-orb/generate_key_pair
       - run:
           name: Build and push test images
           command: |
@@ -459,25 +474,25 @@ jobs:
             done
             printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
       # Tag reference on a registry with a port.
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${REGISTRY}/cosign-orb/tag-ref:1.0
       - cosign-orb/attest:
           image: ${REGISTRY}/cosign-orb/tag-ref:1.0
           predicate: predicate.json
           predicate_type: slsaprovenance
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${TAG_REF_DIGEST_REF}
       - cosign-orb/verify_attestation:
           image: ${TAG_REF_DIGEST_REF}
           predicate_type: slsaprovenance
       # Digest reference on a registry with a port.
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${DIGEST_REF_DIGEST_REF}
       - cosign-orb/attest:
           image: ${DIGEST_REF_DIGEST_REF}
           predicate: predicate.json
           predicate_type: slsaprovenance
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${DIGEST_REF_DIGEST_REF}
       - cosign-orb/verify_attestation:
           image: ${DIGEST_REF_DIGEST_REF}
@@ -541,8 +556,7 @@ jobs:
       - cosign-orb/install:
           version: << parameters.version >>
           caching: false
-      - cosign-orb/generate_key_pair:
-          password: "test-password-bundle-format"
+      - cosign-orb/generate_key_pair
       - run:
           name: Build and push test image
           command: |
@@ -557,7 +571,7 @@ jobs:
             echo "export SUBJECT='${REPO}@${DIGEST}'" >> "${BASH_ENV}"
             echo "export SUBJECT_HEX='${DIGEST#sha256:}'" >> "${BASH_ENV}"
             printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://circleci.com"},"invocation":{"configSource":{}}}\n' > predicate.json
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${SUBJECT}
           bundle_format: << parameters.bundle_format >>
       - cosign-orb/attest:
@@ -608,7 +622,7 @@ jobs:
             printf '%s' "${PREDICATES}" | grep -qxF "https://sigstore.dev/cosign/sign/v1" || { echo "ERROR: no signature bundle"; exit 1; }
             printf '%s' "${PREDICATES}" | grep -qxF "https://slsa.dev/provenance/v0.2" || { echo "ERROR: no attestation bundle"; exit 1; }
             echo "Bundle layout confirmed: one signature and one attestation referrer, no legacy tags."
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${SUBJECT}
           bundle_format: << parameters.bundle_format >>
       - cosign-orb/verify_attestation:
@@ -638,8 +652,7 @@ jobs:
       - checkout
       - cosign-orb/install:
           version: "3.1.3"
-      - cosign-orb/generate_key_pair:
-          password: "test-password-blob-v3"
+      - cosign-orb/generate_key_pair
       - run:
           name: Create test blob file
           command: |
@@ -648,7 +661,7 @@ jobs:
             echo "Created test blob: testblob.txt"
       - cosign-orb/sign_blob:
           blob: testblob.txt
-          signature_output: testblob.txt.sig
+          output_signature: testblob.txt.sig
       - run:
           name: Verify signature file was created
           command: |
@@ -668,8 +681,7 @@ jobs:
       - checkout
       - cosign-orb/install:
           version: "2.5.3"
-      - cosign-orb/generate_key_pair:
-          password: "test-password-blob-v2"
+      - cosign-orb/generate_key_pair
       - run:
           name: Create test blob file
           command: |
@@ -678,7 +690,7 @@ jobs:
             echo "Created test blob: testblob.txt"
       - cosign-orb/sign_blob:
           blob: testblob.txt
-          signature_output: testblob.txt.sig
+          output_signature: testblob.txt.sig
       - run:
           name: Verify signature file was created
           command: |
@@ -707,8 +719,7 @@ jobs:
       - checkout
       - cosign-orb/install:
           version: "1.13.6"
-      - cosign-orb/generate_key_pair:
-          password: "test-password-blob-v1"
+      - cosign-orb/generate_key_pair
       - run:
           name: Create test blob file
           command: |
@@ -717,7 +728,7 @@ jobs:
             echo "Created test blob: testblob.txt"
       - cosign-orb/sign_blob:
           blob: testblob.txt
-          signature_output: testblob.txt.sig
+          output_signature: testblob.txt.sig
       - run:
           name: Verify signature file was created
           command: |
@@ -784,10 +795,10 @@ jobs:
             echo "export OIDC_SUBJECT_REGEXP='${OIDC_SUBJECT_REGEXP}'" >> "${BASH_ENV}"
             echo "OIDC Issuer: ${OIDC_ISSUER}"
             echo "OIDC Subject Regexp: ${OIDC_SUBJECT_REGEXP}"
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_REF}
           keyless: true
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_REF}
           keyless: true
           certificate_oidc_issuer: ${OIDC_ISSUER}
@@ -847,10 +858,10 @@ jobs:
             echo "export OIDC_SUBJECT_REGEXP='${OIDC_SUBJECT_REGEXP}'" >> "${BASH_ENV}"
             echo "OIDC Issuer: ${OIDC_ISSUER}"
             echo "OIDC Subject Regexp: ${OIDC_SUBJECT_REGEXP}"
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_REF}
           keyless: true
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_REF}
           keyless: true
           certificate_oidc_issuer: ${OIDC_ISSUER}
@@ -911,10 +922,10 @@ jobs:
             echo "export OIDC_SUBJECT_REGEXP='${OIDC_SUBJECT_REGEXP}'" >> "${BASH_ENV}"
             echo "OIDC Issuer: ${OIDC_ISSUER}"
             echo "OIDC Subject Regexp: ${OIDC_SUBJECT_REGEXP} (will be skipped for v1)"
-      - cosign-orb/sign_image:
+      - cosign-orb/sign:
           image: ${IMAGE_REF}
           keyless: true
-      - cosign-orb/verify_image:
+      - cosign-orb/verify:
           image: ${IMAGE_REF}
           keyless: true
           certificate_oidc_issuer: ${OIDC_ISSUER}
@@ -1095,8 +1106,8 @@ jobs:
       - cosign-orb/sign_blob:
           blob: testblob.txt
           keyless: true
-          signature_output: testblob.txt.sig
-          certificate_output: testblob.txt.crt
+          output_signature: testblob.txt.sig
+          output_certificate: testblob.txt.crt
       - run:
           name: Verify signature and certificate files were created
           command: |
@@ -1159,8 +1170,8 @@ jobs:
       - cosign-orb/sign_blob:
           blob: testblob.txt
           keyless: true
-          signature_output: testblob.txt.sig
-          certificate_output: testblob.txt.crt
+          output_signature: testblob.txt.sig
+          output_certificate: testblob.txt.crt
       - run:
           name: Verify signature and certificate files were created
           command: |
@@ -1225,8 +1236,8 @@ jobs:
       - cosign-orb/sign_blob:
           blob: testblob.txt
           keyless: true
-          signature_output: testblob.txt.sig
-          certificate_output: testblob.txt.crt
+          output_signature: testblob.txt.sig
+          output_certificate: testblob.txt.crt
       - run:
           name: Verify signature and certificate files were created
           command: |

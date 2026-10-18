@@ -132,7 +132,7 @@ jobs:
             docker push myregistry.com/myimage:${CIRCLE_SHA1}
 
       - cosign/install
-      - cosign/sign_image:
+      - cosign/sign:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           # No keys required! Uses CircleCI OIDC automatically
@@ -145,7 +145,7 @@ jobs:
 ```yaml
 steps:
   - cosign/install
-  - cosign/verify_image:
+  - cosign/verify:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       keyless: true
       # OIDC issuer and certificate identity are auto-detected from
@@ -159,7 +159,7 @@ steps:
 ```yaml
 steps:
   - cosign/install
-  - cosign/verify_image:
+  - cosign/verify:
       image: "myregistry.com/myimage:${CIRCLE_SHA1}"
       keyless: true
       certificate_oidc_issuer: "https://oidc.circleci.com/org/<your-org-id>"
@@ -218,12 +218,12 @@ steps:
   - cosign/sign_blob:
       blob: "./artifact.tar.gz"
       keyless: true
-      signature_output: "./artifact.tar.gz.sig"
-      certificate_output: "./artifact.tar.gz.crt"
+      output_signature: "./artifact.tar.gz.sig"
+      output_certificate: "./artifact.tar.gz.crt"
       # No keys required! Uses CircleCI OIDC automatically
 ```
 
-> **Important**: Unlike image signing where certificates are stored in the registry, blob signing requires you to save both the signature and certificate files. The `certificate_output` parameter is required for keyless blob signing.
+> **Important**: Unlike image signing where certificates are stored in the registry, blob signing requires you to save both the signature and certificate files. The `output_certificate` parameter is required for keyless blob signing.
 
 ### 7. Verify a Keyless Blob Signature
 
@@ -254,7 +254,7 @@ steps:
       certificate_identity_regexp: "https://circleci.com/api/v2/projects/<your-project-id>/pipeline-definitions/.*"
 ```
 
-> **Note**: The `certificate` parameter is required for keyless blob verification. This is the certificate file generated during signing (`certificate_output`).
+> **Note**: The `certificate` parameter is required for keyless blob verification. This is the certificate file written during signing (`output_certificate`).
 
 ## Understanding Certificate Identity
 
@@ -310,7 +310,7 @@ For keyless verification, use these values:
 
 ### Understanding Auto-Detection vs Explicit Parameters
 
-When you run `cosign/verify_image` with `keyless: true` and no other parameters, the orb auto-detects verification parameters from your CircleCI environment:
+When you run `cosign/verify` with `keyless: true` and no other parameters, the orb auto-detects verification parameters from your CircleCI environment:
 
 | What's Auto-Detected | From | Value Generated |
 |---------------------|------|-----------------|
@@ -336,7 +336,7 @@ You have two options for certificate identity verification:
 If you know your `PIPELINE_DEFINITION_ID`, use exact matching for stricter verification:
 
 ```yaml
-- cosign/verify_image:
+- cosign/verify:
     image: "myregistry.com/myimage:${CIRCLE_SHA1}"
     keyless: true
     certificate_oidc_issuer: "https://oidc.circleci.com/org/<org-id>"
@@ -348,7 +348,7 @@ If you know your `PIPELINE_DEFINITION_ID`, use exact matching for stricter verif
 Use regexp if you want to accept any pipeline definition from your project:
 
 ```yaml
-- cosign/verify_image:
+- cosign/verify:
     image: "myregistry.com/myimage:${CIRCLE_SHA1}"
     keyless: true
     certificate_oidc_issuer: "https://oidc.circleci.com/org/<org-id>"
@@ -492,7 +492,7 @@ jobs:
             docker push myregistry.com/myimage:${CIRCLE_SHA1}
 
       - cosign/install
-      - cosign/sign_image:
+      - cosign/sign:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
 
@@ -511,7 +511,7 @@ jobs:
       - image: cimg/base:current
     steps:
       - cosign/install
-      - cosign/verify_image:
+      - cosign/verify:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           # Auto-detects from CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID
@@ -556,7 +556,7 @@ jobs:
 
       - cosign/install:
           version: "3.1.3"
-      - cosign/sign_image:
+      - cosign/sign:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           annotations: "commit=${CIRCLE_SHA1},pipeline=${CIRCLE_PIPELINE_NUMBER}"
@@ -584,7 +584,7 @@ jobs:
     steps:
       - cosign/install:
           version: "3.1.3"
-      - cosign/verify_image:
+      - cosign/verify:
           image: "myregistry.com/myimage:${CIRCLE_SHA1}"
           keyless: true
           certificate_oidc_issuer: "https://oidc.circleci.com/org/SIGNING_ORG_ID"

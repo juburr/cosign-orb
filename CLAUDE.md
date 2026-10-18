@@ -37,7 +37,7 @@ The official Cosign project is included as a git submodule at `./ref/cosign` for
 ```
 src/
 ├── @orb.yml           # Orb metadata and version
-├── commands/          # YAML command definitions (install, sign_image, verify_image, attest, verify_attestation)
+├── commands/          # YAML command definitions (install, sign, verify, attest, verify_attestation, sign_blob, verify_blob, generate_key_pair, check_oidc)
 ├── scripts/           # Bash implementations for each command
 └── examples/          # Usage examples
 ```
@@ -45,8 +45,8 @@ src/
 ### Commands
 
 1. **install** - Downloads and installs Cosign with SHA-512 checksum verification
-2. **sign_image** - Signs container images using base64-encoded private keys
-3. **verify_image** - Verifies container image signatures
+2. **sign** - Signs container images using base64-encoded private keys
+3. **verify** - Verifies container image signatures
 4. **attest** - Attaches attestations (SBOM, vulnerability reports) to images
 5. **verify_attestation** - Verifies attestations on images
 
@@ -62,7 +62,7 @@ The v3 approach creates a minimal signing config file inline:
 {"mediaType":"application/vnd.dev.sigstore.signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
 ```
 
-`sign_image` and `attest` take a `bundle_format` parameter (`auto`, `bundle`, `legacy`); the flag mapping per Cosign version lives in `src/scripts/lib/bundle_format.sh`. Cosign 3 rejects `--signing-config` with the legacy format, so `legacy` on Cosign 3 uses `--new-bundle-format=false --use-signing-config=false --tlog-upload=false`. `verify_image` and `verify_attestation` take the same parameter; where Cosign cannot be limited to one format (bundle on Cosign 3, legacy on Cosign 2.6.3+), they also run a second verification limited to the other format, which must fail.
+`sign` and `attest` take a `bundle_format` parameter (`auto`, `bundle`, `legacy`); the flag mapping per Cosign version lives in `src/scripts/lib/bundle_format.sh`. Cosign 3 rejects `--signing-config` with the legacy format, so `legacy` on Cosign 3 uses `--new-bundle-format=false --use-signing-config=false --tlog-upload=false`. `verify` and `verify_attestation` take the same parameter; where Cosign cannot be limited to one format (bundle on Cosign 3, legacy on Cosign 2.6.3+), they also run a second verification limited to the other format, which must fail.
 
 Shared shell helpers live in `src/scripts/lib/`. Commands pass them to the step through an environment variable (`SCRIPT_..._LIB: << include(scripts/lib/....sh) >>`) and the script `eval`s it. Unit tests for them are in `test/` and run in the `lint-pack` workflow.
 
@@ -86,7 +86,8 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 ### Security Patterns
 
 - No `sudo` usage - installs to user-owned directories
-- Keys passed via environment variables (base64-encoded)
+- Keys passed via environment variables (base64-encoded); credential parameters are `env_var_name`s, never literal secrets
+- `generate_key_pair` uses the password already in the variable named by `password_env_var`, or generates a random one, and writes its exports to `$BASH_ENV` with `printf 'export %s=%q\n'` so no value can break or inject into later steps (`test/generate_key_pair_test.sh`)
 - Secure cleanup using `shred -vzuf -n 10` for key files
 - Private key permissions set to 0400
 
