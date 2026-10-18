@@ -39,10 +39,11 @@
 # lines, or a { ...; } >&2 group over several lines, are not followed: write
 # one message command per line with its own >&2.
 #
-# This is a line check of the ordinary spellings, not a shell parser. Code
-# can still hide from it (a quoted command word such as 'eval', a command
-# split over lines, a message in a heredoc that a shell runs), so review
-# still applies.
+# This is a line check of the ordinary spellings, not a shell parser: it
+# catches the usual ways of breaking these rules by mistake, not code written
+# to get past it. Such code can still hide from it (a quoted command word
+# such as 'eval', a command split over lines, an export assembled from
+# several printf calls), so review still applies.
 #
 # The shared install code (install.sh, install_hash.sh and cache_key.sh) is
 # not checked here. It is kept identical across the orbs as a unit, and
@@ -64,11 +65,12 @@ fail() {
 }
 
 # split_commands LINE: sets the commands array to LINE's commands, split at
-# ;, &, |, &&, || and |& outside single and double quotes (the & in >&2 or &>
-# is a redirection), and the skeletons array to the same commands with quoted
-# text and a trailing # comment removed.
+# ;, &, |, &&, || and |& outside single and double quotes and outside $(...),
+# $((...)), <(...) and >(...) (the & in >&2 or &> is a redirection), and the
+# skeletons array to the same commands with quoted text and a trailing #
+# comment removed. A substitution's own commands are split when it is checked.
 split_commands() {
-    local line=$1 current="" skeleton="" quote="" char prev=" " i
+    local line=$1 current="" skeleton="" quote="" char prev=" " depth=0 i
     commands=()
     skeletons=()
     for ((i = 0; i < ${#line}; i++)); do
@@ -85,6 +87,14 @@ split_commands() {
             quote=${char}
         elif [[ "${char}" == "#" && "${prev}" =~ [[:space:]] ]]; then
             break
+        elif [[ "${char}" == "(" && ( "${prev}" == [\$\<\>] || "${depth}" -gt 0 ) ]]; then
+            depth=$((depth + 1))
+            skeleton+=${char}
+        elif [[ "${char}" == ")" && "${depth}" -gt 0 ]]; then
+            depth=$((depth - 1))
+            skeleton+=${char}
+        elif [[ "${depth}" -gt 0 ]]; then
+            skeleton+=${char}
         elif [[ "${char}" == ";" ]]; then
             commands+=("${current}")
             skeletons+=("${skeleton}")
@@ -130,15 +140,16 @@ if [[ ${#scripts[@]} -eq 0 ]]; then
     exit 0
 fi
 
-# A variable assignment word; its value may hold quoted text or a $(...)
-# with spaces in it.
-assignment="[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|\\\$\\([^)]*\\)|[^[:space:]\"'])*"
+# A variable assignment word; its value may hold quoted text, or a $(...)
+# or $((...)) with spaces in it.
+assignment="[A-Za-z_][A-Za-z0-9_]*\\+?=(\"[^\"]*\"|'[^']*'|\\\$\\(\\([^)]*\\)\\)|\\\$\\([^)]*\\)|[^[:space:]\"'();|&<>])*"
 # Where a command word starts within one command: after keywords, !, {, (,
 # a one-line function declaration (f() { or function f {), a case pattern,
 # variable assignments and redirections, behind the command or builtin
 # wrappers (with command's -p or --), and after a backslash (\eval).
-lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*\{[[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+\{[[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
-allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"[[:space:]]*([)`].*)?$'
+lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*\{[[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+\{[[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
+# An allowed eval may redirect its output (eval "${X_LIB}" 2>/dev/null).
+allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*[<>]+&?[[:space:]]*[^[:space:]]+)*[[:space:]]*([)`].*)?$'
 # What may come before an echo or printf's message text: redirections, the
 # options echo takes (-n, -e and -E; echo prints any other, -- included) or
 # printf's --, and for printf a bare '%s\n' format.
@@ -147,8 +158,8 @@ echo_before_text='^([[:space:]]*(-[neE]+|'"${redirection}"')[[:space:]]+)*'
 printf_before_text='^([[:space:]]*(--|'"${redirection}"')[[:space:]]+)*'
 printf_format=$'(["\']%s(\\\\n)?["\'][[:space:]]+)?'
 text_start=$'["\']?(ERROR|WARN):'
-# A >&2 or 1>&2 (3>&2 sends descriptor 3, not stdout).
-stderr_re='(^|[^0-9])1?>&2([^0-9]|$)'
+# A >&2 or 1>&2 (3>&2 and {fd}>&2 send another descriptor, not stdout).
+stderr_re='(^|[^0-9}])1?>&2([^0-9]|$)'
 # A heredoc's start: <<WORD, <<-WORD, <<'WORD' or <<"WORD", but not <<<.
 heredoc_re="(^|[^<])<<(-?)[[:space:]]*('([^']*)'|\"([^\"]*)\"|([^[:space:];&|<>()'\"]+))"
 # Text up to the first unescaped double quote.
@@ -189,8 +200,8 @@ unsafe_export() {
 }
 
 # find_substitutions TEXT: sets positions to TEXT and to the text after each
-# $( or backtick in it that is not inside single quotes, and after each <(
-# or >( outside quotes.
+# $( (not $((, which is arithmetic) or backtick in it that is not inside
+# single quotes, and after each <( or >( outside quotes.
 find_substitutions() {
     local text=$1 quote="" char i
     positions=("${text}")
@@ -206,6 +217,9 @@ find_substitutions() {
             quote="'"
         elif [[ "${char}" == '`' ]]; then
             positions+=("${text:i+1}")
+        elif [[ "${char}" == '$' && "${text:i+1:2}" == "((" ]]; then
+            # $((...)) is arithmetic, not commands.
+            i=$((i + 2))
         elif [[ "${char}" == '$' && "${text:i+1:1}" == "(" ]]; then
             positions+=("${text:i+2}")
         elif [[ -z "${quote}" && ( "${char}" == "<" || "${char}" == ">" ) && "${text:i+1:1}" == "(" ]]; then
@@ -244,7 +258,7 @@ for script in "${scripts[@]}"; do
             /^if \[ -z "\$\{BASH_VERSION:-\}" \]/ { guard = 1 }
             guard && /^[[:space:]]*(else|elif)([[:space:];]|$)/ { print; exit }
             guard { if ($0 ~ /^fi$/) guard = 0; next }
-            { print; exit }
+            { sub(/[[:space:]]+#.*$/, ""); print; exit }
         ' "${path}")
         if [[ "${first}" != "${want}" ]]; then
             fail "${script}: the first command must be '${want}', not '${first}'"
@@ -325,7 +339,7 @@ for script in "${scripts[@]}"; do
                 for piece in "${commands[@]}"; do
                     # 3. History and xtrace: any -...x... option or -o xtrace
                     # before the -- that ends set's options.
-                    if [[ "${piece}" =~ ${lead}set([[:space:]]|$) ]]; then
+                    if [[ "${piece}" =~ ${lead}set([[:space:]]|[\<\>]|$) ]]; then
                         options=${piece%%[[:space:]]--[[:space:]]*}
                         options=${options%[[:space:]]--}
                         if [[ "${options}" =~ [[:space:]]\+o[[:space:]]+history ]]; then
@@ -343,7 +357,7 @@ for script in "${scripts[@]}"; do
                         fail_line "write exports with printf 'export %s=%q\\n' NAME \"\$value\""
                     fi
                     # 6. eval.
-                    if [[ "${piece}" =~ ${lead}eval([[:space:]]|$) ]] && ! [[ "${piece}" =~ ${lead}${allowed_eval} ]]; then
+                    if [[ "${piece}" =~ ${lead}eval([[:space:]]|[\<\>]|$) ]] && ! [[ "${piece}" =~ ${lead}${allowed_eval} ]]; then
                         fail_line "eval may only run orb code (\"\${NAME_LIB}\" or \"\${NAME_SCRIPT}\")"
                     fi
                 done
