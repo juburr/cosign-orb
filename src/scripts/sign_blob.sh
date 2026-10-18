@@ -5,8 +5,9 @@
 #   1. Private key signing - Traditional signing with a pre-generated key
 #   2. Keyless signing - OIDC-based signing via Fulcio/Rekor (no key management)
 
-set -e
-set +o history
+set -euo pipefail
+# A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the key and password.
+set +o xtrace
 
 # Read in orb parameters
 BLOB=$(printf '%s' "${PARAM_BLOB}" | circleci env subst)
@@ -36,15 +37,24 @@ fi
 
 # Only read key-related params if not using keyless
 if [[ "${KEYLESS}" != "1" ]]; then
-    COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
-    PASSWORD=${!PARAM_PASSWORD}
+    COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY:-}
+    PASSWORD=${!PARAM_PASSWORD:-}
 fi
+
+# Private directory for the decoded key. A cosign.key in the working directory
+# may be the project's own file, or a symlink that would redirect the write.
+# Start empty so the cleanup trap never removes a KEY_DIR inherited from the
+# job environment.
+KEY_DIR=""
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    if [ -f cosign.key ]; then
-        shred -vzuf -n 10 cosign.key 2> /dev/null || true
+    if [[ -n "${KEY_DIR:-}" ]]; then
+        if [ -f "${KEY_DIR}/cosign.key" ]; then
+            shred -vzuf -n 10 "${KEY_DIR}/cosign.key" 2> /dev/null || true
+        fi
+        rm -rf "${KEY_DIR}"
     fi
     unset PARAM_PRIVATE_KEY
     unset PARAM_PASSWORD
@@ -56,10 +66,11 @@ cleanup_secrets() {
 trap cleanup_secrets EXIT
 
 # Verify Cosign version is supported
-COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
+# A failure here leaves the version empty, which the check below reports.
+COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-) || true
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
 if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
-    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
+    echo "ERROR: Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}" >&2
     cleanup_secrets
     exit 1
 fi
@@ -67,7 +78,7 @@ echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Verify the blob file exists
 if [[ ! -f "${BLOB}" ]]; then
-    echo "ERROR: Blob file does not exist: ${BLOB}"
+    echo "ERROR: Blob file does not exist: ${BLOB}" >&2
     cleanup_secrets
     exit 1
 fi
@@ -87,17 +98,17 @@ if [[ "${KEYLESS}" == "1" ]]; then
 
     # Validate output_certificate is provided for keyless mode
     if [[ -z "${OUTPUT_CERTIFICATE}" ]]; then
-        echo "ERROR: output_certificate is required for keyless blob signing."
-        echo ""
-        echo "Unlike image signing where certificates are stored in the registry,"
-        echo "blob signing requires you to save the certificate to a file for verification."
-        echo ""
-        echo "Example:"
-        echo "  cosign/sign_blob:"
-        echo "    blob: \"./artifact.tar.gz\""
-        echo "    keyless: true"
-        echo "    output_signature: \"./artifact.tar.gz.sig\""
-        echo "    output_certificate: \"./artifact.tar.gz.crt\""
+        echo "ERROR: output_certificate is required for keyless blob signing." >&2
+        echo "" >&2
+        echo "Unlike image signing where certificates are stored in the registry," >&2
+        echo "blob signing requires you to save the certificate to a file for verification." >&2
+        echo "" >&2
+        echo "Example:" >&2
+        echo "  cosign/sign_blob:" >&2
+        echo "    blob: \"./artifact.tar.gz\"" >&2
+        echo "    keyless: true" >&2
+        echo "    output_signature: \"./artifact.tar.gz.sig\"" >&2
+        echo "    output_certificate: \"./artifact.tar.gz.crt\"" >&2
         exit 1
     fi
     echo "Certificate output: ${OUTPUT_CERTIFICATE}"
@@ -113,22 +124,22 @@ if [[ "${KEYLESS}" == "1" ]]; then
     # The default CIRCLE_OIDC_TOKEN has org ID as audience, but Fulcio expects "sigstore"
     echo "Requesting OIDC token with Sigstore audience..."
     if ! command -v circleci &> /dev/null; then
-        echo "ERROR: CircleCI CLI is not installed."
-        echo "The circleci CLI is required to request OIDC tokens with custom audience."
+        echo "ERROR: CircleCI CLI is not installed." >&2
+        echo "The circleci CLI is required to request OIDC tokens with custom audience." >&2
         exit 1
     fi
 
     SIGSTORE_ID_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
     if [[ -z "${SIGSTORE_ID_TOKEN:-}" ]]; then
-        echo "ERROR: Failed to get OIDC token from CircleCI."
-        echo ""
-        echo "Keyless signing requires CircleCI OIDC to be enabled."
-        echo "Please ensure:"
-        echo "  1. You are using CircleCI Cloud or Server 4.x+"
-        echo "  2. OIDC is enabled for your organization"
-        echo "  3. Your plan supports OIDC tokens"
-        echo ""
-        echo "Run the 'check_oidc' command to diagnose OIDC issues."
+        echo "ERROR: Failed to get OIDC token from CircleCI." >&2
+        echo "" >&2
+        echo "Keyless signing requires CircleCI OIDC to be enabled." >&2
+        echo "Please ensure:" >&2
+        echo "  1. You are using CircleCI Cloud or Server 4.x+" >&2
+        echo "  2. OIDC is enabled for your organization" >&2
+        echo "  3. Your plan supports OIDC tokens" >&2
+        echo "" >&2
+        echo "Run the 'check_oidc' command to diagnose OIDC issues." >&2
         exit 1
     fi
     export SIGSTORE_ID_TOKEN
@@ -227,32 +238,39 @@ echo "=== Private Key Signing Mode ==="
 # it to be used by Cosign. Setting it here prevents the "cosign sign-blob" command from prompting
 # for a password in the CI pipeline.
 if ! type export | grep -q 'export is a shell builtin'; then
-    echo "The export command is not a shell builtin. It is not safe to proceed."
+    echo "ERROR: The export command is not a shell builtin. It is not safe to proceed." >&2
     exit 1
 fi
 export COSIGN_PASSWORD="${PASSWORD}"
 
-# Load the private key, normally a base64 encoded secret within a CircleCI context
+# Load the private key, normally a base64 encoded secret within a CircleCI context,
+# into KEY_DIR rather than the working directory.
 # Note that a Cosign v2 key used with Cosign v1 may throw: unsupported pem type: ENCRYPTED SIGSTORE PRIVATE KEY
 if [[ -z "${COSIGN_PRIVATE_KEY}" ]]; then
-    echo "ERROR: Private key is empty. Check that the environment variable is set correctly."
+    echo "ERROR: Private key is empty. Check that the environment variable is set correctly." >&2
     cleanup_secrets
     exit 1
 fi
+if ! KEY_DIR=$(umask 077 && mktemp -d); then
+    echo "ERROR: Could not create a private temporary directory for the private key." >&2
+    cleanup_secrets
+    exit 1
+fi
+KEY_FILE="${KEY_DIR}/cosign.key"
 # Use printf instead of echo for more predictable handling of special characters
 # The || true prevents set -e from exiting on decode failure; we check the result below
-if ! printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key 2>&1; then
-    echo "ERROR: Failed to decode private key. Ensure it is valid base64."
+if ! (umask 077 && printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > "${KEY_FILE}" 2>&1); then
+    echo "ERROR: Failed to decode private key. Ensure it is valid base64." >&2
     cleanup_secrets
     exit 1
 fi
-if [[ ! -s cosign.key ]]; then
-    echo "ERROR: Decoded private key is empty."
+if [[ ! -s "${KEY_FILE}" ]]; then
+    echo "ERROR: Decoded private key is empty." >&2
     cleanup_secrets
     exit 1
 fi
-echo "Wrote private key: cosign.key"
-chmod 0400 cosign.key
+echo "Wrote private key: ${KEY_FILE}"
+chmod 0400 "${KEY_FILE}"
 echo "Set private key permissions: 0400"
 
 # Build output signature flag if specified
@@ -269,24 +287,24 @@ echo "Signing ${BLOB}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     # Cosign v1: no tlog flags needed for sign-blob
     if [[ -n "${OUTPUT_FLAG}" ]]; then
-        cosign sign-blob --key cosign.key "${OUTPUT_FLAG}" "${BLOB}"
+        cosign sign-blob --key "${KEY_FILE}" "${OUTPUT_FLAG}" "${BLOB}"
     else
-        cosign sign-blob --key cosign.key "${BLOB}"
+        cosign sign-blob --key "${KEY_FILE}" "${BLOB}"
     fi
 elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
     if [[ -n "${OUTPUT_FLAG}" ]]; then
-        cosign sign-blob --key cosign.key --tlog-upload=false "${OUTPUT_FLAG}" "${BLOB}"
+        cosign sign-blob --key "${KEY_FILE}" --tlog-upload=false "${OUTPUT_FLAG}" "${BLOB}"
     else
-        cosign sign-blob --key cosign.key --tlog-upload=false "${BLOB}"
+        cosign sign-blob --key "${KEY_FILE}" --tlog-upload=false "${BLOB}"
     fi
 else
     # Cosign v3: Must disable the default signing config and new bundle format to use --output-signature
     # By default, v3 sets --use-signing-config=true which requires --bundle output format.
     # To use the legacy --output-signature flag, we disable both the signing config and new bundle format.
     if [[ -n "${OUTPUT_FLAG}" ]]; then
-        cosign sign-blob --key cosign.key --tlog-upload=false --use-signing-config=false --new-bundle-format=false "${OUTPUT_FLAG}" "${BLOB}"
+        cosign sign-blob --key "${KEY_FILE}" --tlog-upload=false --use-signing-config=false --new-bundle-format=false "${OUTPUT_FLAG}" "${BLOB}"
     else
-        cosign sign-blob --key cosign.key --tlog-upload=false --use-signing-config=false --new-bundle-format=false "${BLOB}"
+        cosign sign-blob --key "${KEY_FILE}" --tlog-upload=false --use-signing-config=false --new-bundle-format=false "${BLOB}"
     fi
 fi
 

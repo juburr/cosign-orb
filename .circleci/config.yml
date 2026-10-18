@@ -17,6 +17,14 @@ jobs:
       - run:
           name: Run circleci env subst tests
           command: bash test/env_subst_test.sh
+  test-shell-conventions:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run shell convention tests
+          command: bash test/shell_conventions_test.sh
   test-image-ref:
     docker:
       - image: cimg/base:current
@@ -49,6 +57,22 @@ jobs:
       - run:
           name: Run generate_key_pair tests
           command: bash test/generate_key_pair_test.sh
+  test-key-files:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run key file tests
+          command: bash test/key_files_test.sh
+  test-empty-arrays:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run empty array tests
+          command: bash test/empty_arrays_test.sh
   test-install:
     docker:
       - image: cimg/base:current
@@ -63,6 +87,8 @@ workflows:
     jobs:
       - test-env-subst:
           filters: *filters
+      - test-shell-conventions:
+          filters: *filters
       - test-image-ref:
           filters: *filters
       - test-bundle-format:
@@ -70,6 +96,10 @@ workflows:
       - test-verify:
           filters: *filters
       - test-generate-key-pair:
+          filters: *filters
+      - test-key-files:
+          filters: *filters
+      - test-empty-arrays:
           filters: *filters
       - test-install:
           filters: *filters
@@ -86,5 +116,18 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: cosign-orb
-          requires: [test-env-subst, test-image-ref, test-bundle-format, test-verify, test-generate-key-pair, test-install, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires:
+            - test-env-subst
+            - test-shell-conventions
+            - test-image-ref
+            - test-bundle-format
+            - test-verify
+            - test-generate-key-pair
+            - test-key-files
+            - test-empty-arrays
+            - test-install
+            - orb-tools/lint
+            - orb-tools/pack
+            - orb-tools/review
+            - shellcheck/check
           filters: *filters

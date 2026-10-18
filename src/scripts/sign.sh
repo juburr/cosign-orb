@@ -5,8 +5,9 @@
 #   1. Private key signing - Traditional signing with a pre-generated key
 #   2. Keyless signing - OIDC-based signing via Fulcio/Rekor (no key management)
 
-set -e
-set +o history
+set -euo pipefail
+# A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the key and password.
+set +o xtrace
 
 # Read in orb parameters
 IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
@@ -32,15 +33,24 @@ fi
 
 # Only read key-related params if not using keyless
 if [[ "${KEYLESS}" != "1" ]]; then
-    COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY}
-    PASSWORD=${!PARAM_PASSWORD}
+    COSIGN_PRIVATE_KEY=${!PARAM_PRIVATE_KEY:-}
+    PASSWORD=${!PARAM_PASSWORD:-}
 fi
+
+# Private directory for the decoded key. A cosign.key in the working directory
+# may be the project's own file, or a symlink that would redirect the write.
+# Start empty so the cleanup trap never removes a KEY_DIR inherited from the
+# job environment.
+KEY_DIR=""
 
 # Cleanup makes a best effort to destroy all secrets.
 cleanup_secrets() {
     echo "Cleaning up secrets..."
-    if [ -f cosign.key ]; then
-        shred -vzuf -n 10 cosign.key 2> /dev/null || true
+    if [[ -n "${KEY_DIR:-}" ]]; then
+        if [ -f "${KEY_DIR}/cosign.key" ]; then
+            shred -vzuf -n 10 "${KEY_DIR}/cosign.key" 2> /dev/null || true
+        fi
+        rm -rf "${KEY_DIR}"
     fi
     if [[ -n "${SIGNING_CONFIG:-}" ]]; then
         rm -f "${SIGNING_CONFIG}"
@@ -55,17 +65,18 @@ cleanup_secrets() {
 trap cleanup_secrets EXIT
 
 # Verify Cosign version is supported
-COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-)
+# A failure here leaves the version empty, which the check below reports.
+COSIGN_VERSION=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2-) || true
 COSIGN_MAJOR_VERSION=$(echo "${COSIGN_VERSION}" | cut -d '.' -f 1)
 if [ "${COSIGN_MAJOR_VERSION}" != "1" ] && [ "${COSIGN_MAJOR_VERSION}" != "2" ] && [ "${COSIGN_MAJOR_VERSION}" != "3" ]; then
-    echo "Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}"
+    echo "ERROR: Unsupported Cosign version: ${COSIGN_MAJOR_VERSION}" >&2
     exit 1
 fi
 echo "Detected Cosign major version: ${COSIGN_MAJOR_VERSION}"
 
 # Load the shared helpers (src/scripts/lib/image_ref.sh and bundle_format.sh).
 if [[ -z "${SCRIPT_IMAGE_REF_LIB:-}" || -z "${SCRIPT_BUNDLE_FORMAT_LIB:-}" ]]; then
-    echo "ERROR: The shared helpers were not loaded. SCRIPT_IMAGE_REF_LIB or SCRIPT_BUNDLE_FORMAT_LIB is empty."
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_IMAGE_REF_LIB or SCRIPT_BUNDLE_FORMAT_LIB is empty." >&2
     exit 1
 fi
 eval "${SCRIPT_IMAGE_REF_LIB}"
@@ -86,7 +97,7 @@ echo "  Format flags: ${BUNDLE_FORMAT_FLAGS[*]:-(none)}"
 # Determine the image digest
 echo "Determining image URI digest..."
 if ! IMAGE_URI_DIGEST=$(resolve_image_uri_digest "${IMAGE}"); then
-    echo "ERROR: Could not determine the digest for ${IMAGE}."
+    echo "ERROR: Could not determine the digest for ${IMAGE}." >&2
     exit 1
 fi
 echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
@@ -96,11 +107,11 @@ ANNOTATION_FLAGS=()
 if [[ -n "${ANNOTATIONS}" ]]; then
     echo "Processing annotations..."
     IFS=',' read -ra ANNOTATION_PAIRS <<< "${ANNOTATIONS}"
-    for pair in "${ANNOTATION_PAIRS[@]}"; do
+    for pair in ${ANNOTATION_PAIRS[@]+"${ANNOTATION_PAIRS[@]}"}; do
         pair=$(echo "${pair}" | xargs)
         if [[ -n "${pair}" ]]; then
             if [[ "${pair}" != *"="* ]]; then
-                echo "ERROR: Invalid annotation format '${pair}'. Expected key=value."
+                echo "ERROR: Invalid annotation format '${pair}'. Expected key=value." >&2
                 exit 1
             fi
             echo "  Adding annotation: ${pair}"
@@ -125,22 +136,22 @@ if [[ "${KEYLESS}" == "1" ]]; then
     # The default CIRCLE_OIDC_TOKEN has org ID as audience, but Fulcio expects "sigstore"
     echo "Requesting OIDC token with Sigstore audience..."
     if ! command -v circleci &> /dev/null; then
-        echo "ERROR: CircleCI CLI is not installed."
-        echo "The circleci CLI is required to request OIDC tokens with custom audience."
+        echo "ERROR: CircleCI CLI is not installed." >&2
+        echo "The circleci CLI is required to request OIDC tokens with custom audience." >&2
         exit 1
     fi
 
     SIGSTORE_ID_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
     if [[ -z "${SIGSTORE_ID_TOKEN:-}" ]]; then
-        echo "ERROR: Failed to get OIDC token from CircleCI."
-        echo ""
-        echo "Keyless signing requires CircleCI OIDC to be enabled."
-        echo "Please ensure:"
-        echo "  1. You are using CircleCI Cloud or Server 4.x+"
-        echo "  2. OIDC is enabled for your organization"
-        echo "  3. Your plan supports OIDC tokens"
-        echo ""
-        echo "Run the 'check_oidc' command to diagnose OIDC issues."
+        echo "ERROR: Failed to get OIDC token from CircleCI." >&2
+        echo "" >&2
+        echo "Keyless signing requires CircleCI OIDC to be enabled." >&2
+        echo "Please ensure:" >&2
+        echo "  1. You are using CircleCI Cloud or Server 4.x+" >&2
+        echo "  2. OIDC is enabled for your organization" >&2
+        echo "  3. Your plan supports OIDC tokens" >&2
+        echo "" >&2
+        echo "Run the 'check_oidc' command to diagnose OIDC issues." >&2
         exit 1
     fi
     export SIGSTORE_ID_TOKEN
@@ -156,8 +167,8 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
             --identity-token="${SIGSTORE_ID_TOKEN}" \
-            "${ANNOTATION_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             -y \
             "${IMAGE_URI_DIGEST}"
     elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
@@ -166,8 +177,8 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
-            "${ANNOTATION_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             --yes \
             "${IMAGE_URI_DIGEST}"
     else
@@ -176,8 +187,8 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
-            "${ANNOTATION_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             --yes \
             --use-signing-config=false \
             "${IMAGE_URI_DIGEST}"
@@ -198,31 +209,37 @@ echo "=== Private Key Signing Mode ==="
 
 # Export password for Cosign (prevents interactive prompt)
 if ! type export | grep -q 'export is a shell builtin'; then
-    echo "The export command is not a shell builtin. It is not safe to proceed."
+    echo "ERROR: The export command is not a shell builtin. It is not safe to proceed." >&2
     exit 1
 fi
 export COSIGN_PASSWORD="${PASSWORD}"
 
-# Load the private key
+# Load the private key into KEY_DIR rather than the working directory.
 if [[ -z "${COSIGN_PRIVATE_KEY}" ]]; then
-    echo "ERROR: Private key is empty. Check that the environment variable is set correctly."
+    echo "ERROR: Private key is empty. Check that the environment variable is set correctly." >&2
     exit 1
 fi
-if ! printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > cosign.key 2>&1; then
-    echo "ERROR: Failed to decode private key. Ensure it is valid base64."
+if ! KEY_DIR=$(umask 077 && mktemp -d); then
+    echo "ERROR: Could not create a private temporary directory for the private key." >&2
     exit 1
 fi
-if [[ ! -s cosign.key ]]; then
-    echo "ERROR: Decoded private key is empty."
+KEY_FILE="${KEY_DIR}/cosign.key"
+if ! (umask 077 && printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode > "${KEY_FILE}" 2>&1); then
+    echo "ERROR: Failed to decode private key. Ensure it is valid base64." >&2
     exit 1
 fi
-echo "Wrote private key: cosign.key"
-chmod 0400 cosign.key
+if [[ ! -s "${KEY_FILE}" ]]; then
+    echo "ERROR: Decoded private key is empty." >&2
+    exit 1
+fi
+echo "Wrote private key: ${KEY_FILE}"
+chmod 0400 "${KEY_FILE}"
 echo "Set private key permissions: 0400"
 
-# Sign the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log.
+# Sign the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log,
+# so private_key_sign_flags never leaves it empty.
 echo "Signing ${IMAGE_URI_DIGEST}..."
-cosign sign --key cosign.key "${BUNDLE_FORMAT_FLAGS[@]}" "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
+cosign sign --key "${KEY_FILE}" "${BUNDLE_FORMAT_FLAGS[@]}" ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} "${IMAGE_URI_DIGEST}"
 rm -f "${SIGNING_CONFIG}"
 
 echo ""

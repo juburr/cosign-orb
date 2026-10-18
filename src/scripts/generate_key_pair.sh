@@ -4,8 +4,9 @@
 # WARNING: For production use, store keys in a proper key management system
 # (AWS KMS, HashiCorp Vault, GCP KMS, etc.) or CircleCI contexts.
 
-set -e
-set +o history
+set -euo pipefail
+# A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the keys and password.
+set +o xtrace
 
 # Read in orb parameters. Each one is the name of an environment variable.
 PRIVATE_KEY_ENV_VAR="${PARAM_PRIVATE_KEY_ENV_VAR}"
@@ -16,7 +17,7 @@ PASSWORD_ENV_VAR="${PARAM_PASSWORD_ENV_VAR}"
 # shell variable name.
 for name in "${PRIVATE_KEY_ENV_VAR}" "${PUBLIC_KEY_ENV_VAR}" "${PASSWORD_ENV_VAR}"; do
     if [[ ! "${name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-        echo "ERROR: '${name}' is not a valid environment variable name."
+        echo "ERROR: '${name}' is not a valid environment variable name." >&2
         exit 1
     fi
 done
@@ -31,36 +32,50 @@ else
     PASSWORD=$(openssl rand -base64 32)
 fi
 
+# cosign generate-key-pair writes cosign.key and cosign.pub into the current
+# directory. It runs in this private directory instead of the working
+# directory, where it would overwrite (and the cleanup would then destroy) the
+# project's own key files, or follow a symlink planted there. Start empty so
+# the cleanup trap never removes a KEY_DIR inherited from the job environment.
+KEY_DIR=""
+
 # Cleanup function to securely delete key files
 cleanup_key_files() {
     echo "Cleaning up key files..."
-    shred -vzuf -n 10 cosign.key 2> /dev/null || true
-    shred -vzuf -n 10 cosign.pub 2> /dev/null || true
+    if [[ -n "${KEY_DIR:-}" ]]; then
+        shred -vzuf -n 10 "${KEY_DIR}/cosign.key" 2> /dev/null || true
+        shred -vzuf -n 10 "${KEY_DIR}/cosign.pub" 2> /dev/null || true
+        rm -rf "${KEY_DIR}"
+    fi
     echo "Key files destroyed."
 }
 trap cleanup_key_files EXIT
 
 # COSIGN_PASSWORD is used by cosign generate-key-pair
 if ! type export | grep -q 'export is a shell builtin'; then
-    echo "The export command is not a shell builtin. It is not safe to proceed."
+    echo "ERROR: The export command is not a shell builtin. It is not safe to proceed." >&2
     exit 1
 fi
 export COSIGN_PASSWORD="${PASSWORD}"
 
-# Generate the key pair
+# Generate the key pair. The subshell keeps the step's working directory.
+if ! KEY_DIR=$(umask 077 && mktemp -d); then
+    echo "ERROR: Could not create a private temporary directory for the key pair." >&2
+    exit 1
+fi
 echo "Generating Cosign key pair..."
-cosign generate-key-pair
+(cd "${KEY_DIR}" && umask 077 && cosign generate-key-pair)
 
 # Verify the key files were created
-if [[ ! -f cosign.key ]] || [[ ! -f cosign.pub ]]; then
-    echo "ERROR: Key pair generation failed. Key files not found."
+if [[ ! -f "${KEY_DIR}/cosign.key" ]] || [[ ! -f "${KEY_DIR}/cosign.pub" ]]; then
+    echo "ERROR: Key pair generation failed. Key files not found." >&2
     exit 1
 fi
 
 # Base64 encode the keys
 echo "Encoding keys..."
-PRIVATE_KEY_B64=$(base64 -w0 cosign.key)
-PUBLIC_KEY_B64=$(base64 -w0 cosign.pub)
+PRIVATE_KEY_B64=$(base64 -w0 "${KEY_DIR}/cosign.key")
+PUBLIC_KEY_B64=$(base64 -w0 "${KEY_DIR}/cosign.pub")
 
 # Export to BASH_ENV for use in subsequent steps. %q quotes each value for
 # the shell, so no character in the password can end the value early or run
@@ -70,13 +85,24 @@ echo "  ${PASSWORD_ENV_VAR} (password)"
 echo "  ${PRIVATE_KEY_ENV_VAR} (base64-encoded private key)"
 echo "  ${PUBLIC_KEY_ENV_VAR} (base64-encoded public key)"
 
+if [[ -z "${BASH_ENV:-}" ]]; then
+    echo "ERROR: BASH_ENV is not set, so the keys cannot be exported to later steps." >&2
+    exit 1
+fi
+# Later steps source BASH_ENV with xtrace on if the job turned it on, so the
+# exports are wrapped in lines that turn it off while they run (the trace of
+# that goes to /dev/null) and back on after.
 {
+    # shellcheck disable=SC2016 # expanded when a later step sources BASH_ENV
+    printf '%s\n' '{ case $- in *x*) cosign_orb_xtrace=1 ;; *) cosign_orb_xtrace= ;; esac; set +x; } 2>/dev/null'
     printf 'export %s=%q\n' "${PASSWORD_ENV_VAR}" "${PASSWORD}"
     printf 'export %s=%q\n' "${PRIVATE_KEY_ENV_VAR}" "${PRIVATE_KEY_B64}"
     printf 'export %s=%q\n' "${PUBLIC_KEY_ENV_VAR}" "${PUBLIC_KEY_B64}"
+    # shellcheck disable=SC2016 # expanded when a later step sources BASH_ENV
+    printf '%s\n' '[ -z "${cosign_orb_xtrace:-}" ] || set -x; unset cosign_orb_xtrace'
 } >> "${BASH_ENV}"
 
 echo ""
 echo "Key pair generated successfully."
-echo "WARNING: These keys are for development/testing only."
-echo "For production, use a key management system or store keys in CircleCI contexts."
+echo "WARN: These keys are for development/testing only." >&2
+echo "For production, use a key management system or store keys in CircleCI contexts." >&2

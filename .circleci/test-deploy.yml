@@ -435,6 +435,11 @@ jobs:
           name: Start registry:2 on localhost:5000
           command: |
             # mirror.gcr.io serves the Docker Hub registry:2 image without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before starting the container.
+            for attempt in 1 2 3; do
+              docker pull mirror.gcr.io/library/registry:2 && break
+              sleep $((attempt * 10))
+            done
             docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
             for i in $(seq 1 30); do
               curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
@@ -545,6 +550,11 @@ jobs:
           name: Start registry:2 on localhost:5000
           command: |
             # mirror.gcr.io serves the Docker Hub registry:2 image without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before starting the container.
+            for attempt in 1 2 3; do
+              docker pull mirror.gcr.io/library/registry:2 && break
+              sleep $((attempt * 10))
+            done
             docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
             for i in $(seq 1 30); do
               curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
@@ -707,9 +717,14 @@ jobs:
   test-check-oidc:
     executor: docker-executor
     steps:
+      # Names only: the values include CIRCLE_OIDC_TOKEN, which CircleCI
+      # doesn't mask and which is enough to get a Sigstore certificate for
+      # this project's identity while it is valid. compgen -e prints exported
+      # names and never a value; env | cut would print the later lines of a
+      # value that contains a newline.
       - run:
-          name: Dump Environment Variables (sorted)
-          command: env | sort
+          name: List environment variable names (sorted)
+          command: compgen -e | sort
       - cosign-orb/check_oidc
 
   # Integration test: sign and verify blob with Cosign v1

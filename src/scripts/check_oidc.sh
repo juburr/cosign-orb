@@ -3,19 +3,21 @@
 # Used to confirm OIDC is properly configured before using keyless signing.
 
 set -euo pipefail
+# A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the OIDC token.
+set +o xtrace
 
 echo "=== CircleCI OIDC Token Check ==="
 echo ""
 
 if [[ -z "${CIRCLE_OIDC_TOKEN:-}" ]]; then
-    echo "ERROR: CIRCLE_OIDC_TOKEN is not set"
-    echo ""
-    echo "Possible causes:"
-    echo "  1. OIDC is not enabled for your CircleCI organization"
-    echo "  2. You are using CircleCI Server < 4.x without OIDC configuration"
-    echo "  3. Your CircleCI plan does not include OIDC tokens"
-    echo ""
-    echo "To enable OIDC, check your CircleCI Organization Settings."
+    echo "ERROR: CIRCLE_OIDC_TOKEN is not set" >&2
+    echo "" >&2
+    echo "Possible causes:" >&2
+    echo "  1. OIDC is not enabled for your CircleCI organization" >&2
+    echo "  2. You are using CircleCI Server < 4.x without OIDC configuration" >&2
+    echo "  3. Your CircleCI plan does not include OIDC tokens" >&2
+    echo "" >&2
+    echo "To enable OIDC, check your CircleCI Organization Settings." >&2
     exit 1
 fi
 
@@ -37,11 +39,12 @@ decode_jwt_part() {
     echo "$b64" | base64 -d 2>/dev/null
 }
 
-# Extract and decode payload
-PAYLOAD=$(decode_jwt_part "$(echo "${CIRCLE_OIDC_TOKEN}" | cut -d. -f2)")
+# Extract and decode payload. A decoding failure leaves PAYLOAD empty, which
+# the check below reports.
+PAYLOAD=$(decode_jwt_part "$(echo "${CIRCLE_OIDC_TOKEN}" | cut -d. -f2)") || PAYLOAD=""
 
 if [[ -z "${PAYLOAD}" ]]; then
-    echo "ERROR: Failed to decode JWT payload"
+    echo "ERROR: Failed to decode JWT payload" >&2
     exit 1
 fi
 
