@@ -65,6 +65,14 @@ jobs:
       - run:
           name: Run key file tests
           command: bash test/key_files_test.sh
+  test-empty-arrays:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run empty array tests
+          command: bash test/empty_arrays_test.sh
   test-install:
     docker:
       - image: cimg/base:current
@@ -91,6 +99,8 @@ workflows:
           filters: *filters
       - test-key-files:
           filters: *filters
+      - test-empty-arrays:
+          filters: *filters
       - test-install:
           filters: *filters
       - orb-tools/lint:
@@ -114,6 +124,7 @@ workflows:
             - test-verify
             - test-generate-key-pair
             - test-key-files
+            - test-empty-arrays
             - test-install
             - orb-tools/lint
             - orb-tools/pack

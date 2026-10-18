@@ -94,6 +94,7 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 
 Every script under `src/scripts/` except the shared install code follows the conventions all juburr orbs share; `test/shell_conventions_test.sh` (identical in every orb, never edit it) checks the mechanical ones:
 - `#!/bin/bash`, then `set -euo pipefail` as the first command (libraries in `lib/` have no `set` line). Read optional and indirectly named variables as `${VAR:-}` / `${!name:-}`.
+- Expand an array that can be empty as `${arr[@]+"${arr[@]}"}`, because bash before 4.4 treats an empty array as unset under `-u` and the orb supports bash 4.0+ (`test/empty_arrays_test.sh`).
 - No `set +o history`, never enable xtrace. Scripts that handle a key, password or token run `set +o xtrace` with a one-line comment.
 - Messages start with `ERROR: ` or `WARN: ` and go to stderr, continuation lines included. Every non-zero exit prints an `ERROR:` line first.
 - `$BASH_ENV` exports use `printf 'export %s=%q\n'`. `eval` only runs `"${..._LIB}"` / `"${..._SCRIPT}"`.

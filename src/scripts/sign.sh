@@ -107,7 +107,7 @@ ANNOTATION_FLAGS=()
 if [[ -n "${ANNOTATIONS}" ]]; then
     echo "Processing annotations..."
     IFS=',' read -ra ANNOTATION_PAIRS <<< "${ANNOTATIONS}"
-    for pair in "${ANNOTATION_PAIRS[@]}"; do
+    for pair in ${ANNOTATION_PAIRS[@]+"${ANNOTATION_PAIRS[@]}"}; do
         pair=$(echo "${pair}" | xargs)
         if [[ -n "${pair}" ]]; then
             if [[ "${pair}" != *"="* ]]; then
@@ -167,8 +167,8 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
             --identity-token="${SIGSTORE_ID_TOKEN}" \
-            "${ANNOTATION_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             -y \
             "${IMAGE_URI_DIGEST}"
     elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
@@ -177,8 +177,8 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
-            "${ANNOTATION_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             --yes \
             "${IMAGE_URI_DIGEST}"
     else
@@ -187,8 +187,8 @@ if [[ "${KEYLESS}" == "1" ]]; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
-            "${ANNOTATION_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             --yes \
             --use-signing-config=false \
             "${IMAGE_URI_DIGEST}"
@@ -236,9 +236,10 @@ echo "Wrote private key: ${KEY_FILE}"
 chmod 0400 "${KEY_FILE}"
 echo "Set private key permissions: 0400"
 
-# Sign the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log.
+# Sign the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log,
+# so private_key_sign_flags never leaves it empty.
 echo "Signing ${IMAGE_URI_DIGEST}..."
-cosign sign --key "${KEY_FILE}" "${BUNDLE_FORMAT_FLAGS[@]}" "${ANNOTATION_FLAGS[@]}" "${IMAGE_URI_DIGEST}"
+cosign sign --key "${KEY_FILE}" "${BUNDLE_FORMAT_FLAGS[@]}" ${ANNOTATION_FLAGS[@]+"${ANNOTATION_FLAGS[@]}"} "${IMAGE_URI_DIGEST}"
 rm -f "${SIGNING_CONFIG}"
 
 echo ""

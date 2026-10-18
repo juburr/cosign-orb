@@ -170,7 +170,7 @@ if is_keyless_enabled; then
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
             --identity-token="${SIGSTORE_ID_TOKEN}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             -y \
             "${IMAGE_URI_DIGEST}"
     elif [ "${COSIGN_MAJOR_VERSION}" == "2" ]; then
@@ -181,7 +181,7 @@ if is_keyless_enabled; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             --yes \
             "${IMAGE_URI_DIGEST}"
     else
@@ -192,7 +192,7 @@ if is_keyless_enabled; then
             --fulcio-url="${FULCIO_URL}" \
             --rekor-url="${REKOR_URL}" \
             --oidc-issuer="${OIDC_ISSUER}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             --yes \
             --use-signing-config=false \
             "${IMAGE_URI_DIGEST}"
@@ -241,7 +241,8 @@ echo "Wrote private key: ${KEY_FILE}"
 chmod 0400 "${KEY_FILE}"
 echo "Set private key permissions: 0400"
 
-# Attest the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log.
+# Attest the image using its digest. BUNDLE_FORMAT_FLAGS also turns off the transparency log,
+# so private_key_sign_flags never leaves it empty.
 echo "Attesting ${IMAGE_URI_DIGEST}..."
 echo "  Predicate: ${PREDICATE}"
 echo "  Predicate Type: ${PREDICATE_TYPE}"

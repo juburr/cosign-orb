@@ -167,14 +167,14 @@ if is_keyless_enabled; then
         COSIGN_EXPERIMENTAL=1 cosign verify-attestation \
             --type "${PREDICATE_TYPE}" \
             "${IDENTITY_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             "${IMAGE}"
     else
         # Cosign v2 and v3
         cosign verify-attestation \
             --type "${PREDICATE_TYPE}" \
             "${IDENTITY_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             "${IMAGE}"
         check_other_format_does_not_verify "${BUNDLE_FORMAT}" \
             cosign verify-attestation --type "${PREDICATE_TYPE}" "${IDENTITY_FLAGS[@]}" "${IMAGE}" || exit 1
@@ -224,7 +224,7 @@ if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
     cosign verify-attestation \
         --type "${PREDICATE_TYPE}" \
         --key "${KEY_FILE}" \
-        "${BUNDLE_FORMAT_FLAGS[@]}" \
+        ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
         "${IMAGE}"
 else
     # Cosign v2 and v3: --private-infrastructure skips tlog verification
@@ -232,7 +232,7 @@ else
         --type "${PREDICATE_TYPE}" \
         --key "${KEY_FILE}" \
         --private-infrastructure \
-        "${BUNDLE_FORMAT_FLAGS[@]}" \
+        ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
         "${IMAGE}"
     check_other_format_does_not_verify "${BUNDLE_FORMAT}" \
         cosign verify-attestation --type "${PREDICATE_TYPE}" --key "${KEY_FILE}" --private-infrastructure "${IMAGE}" || exit 1

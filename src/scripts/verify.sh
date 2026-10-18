@@ -71,7 +71,7 @@ require_image_signature() {
 verify_image_signature() {
     local output status=0
 
-    output=$("$@" "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}") || return 1
+    output=$("$@" ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} "${IMAGE}") || return 1
     require_image_signature "${output}" || status=$?
     if [[ "${status}" -eq 1 && "${COSIGN_MAJOR_VERSION}" == "3" && "${BUNDLE_FORMAT}" == "auto" ]]; then
         echo "Checking legacy signatures only (--new-bundle-format=false)..."
@@ -205,7 +205,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
         # Cosign v1 requires COSIGN_EXPERIMENTAL=1 for keyless verification
         VERIFY_OUTPUT=$(COSIGN_EXPERIMENTAL=1 cosign verify \
             "${IDENTITY_FLAGS[@]}" \
-            "${BUNDLE_FORMAT_FLAGS[@]}" \
+            ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} \
             "${IMAGE}")
         require_image_signature "${VERIFY_OUTPUT}" || { echo "ERROR: No image signature verified." >&2; exit 1; }
     else
@@ -252,7 +252,7 @@ echo "Set public key permissions: 0400"
 # Verify image signature using the public key
 echo "Verifying cosign signature for ${IMAGE}..."
 if [ "${COSIGN_MAJOR_VERSION}" == "1" ]; then
-    VERIFY_OUTPUT=$(cosign verify --key "${KEY_FILE}" "${BUNDLE_FORMAT_FLAGS[@]}" "${IMAGE}")
+    VERIFY_OUTPUT=$(cosign verify --key "${KEY_FILE}" ${BUNDLE_FORMAT_FLAGS[@]+"${BUNDLE_FORMAT_FLAGS[@]}"} "${IMAGE}")
     require_image_signature "${VERIFY_OUTPUT}" || { echo "ERROR: No image signature verified." >&2; exit 1; }
 else
     # Cosign v2 and v3: --private-infrastructure flag works in both versions
