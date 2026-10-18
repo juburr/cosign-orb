@@ -12,26 +12,32 @@
 #      command that turns xtrace on (it would print secrets).
 #   4. Messages start with ERROR: or WARN: and go to stderr: every echo or
 #      printf command that prints one of them starts its first argument
-#      (after options, redirections, and a bare '%s\n' format) with it and
-#      has >&2 or 1>&2 (or is inside a { ...; } >&2 group on the same line).
-#      Heredoc bodies are data and are not checked for this.
+#      (after redirections, echo's -n, -e and -E, printf's --, and a bare
+#      '%s\n' format) with it and
+#      has >&2 or 1>&2 (or is inside a { ...; } >&2 group that ends the
+#      line). Output captured by $(...) and printf -v is not printed, and
+#      heredoc bodies are data, so neither is checked for this.
 #      Error:, FATAL:, WARNING: and Warning: are not used.
-#   5. Exports written by echo or printf quote every value (every NAME=
-#      after an export, not only the first) with printf %q, so no value can
-#      end the quoting or run a command when later steps source $BASH_ENV.
-#      This applies to every printed export, not only to lines that name
-#      $BASH_ENV: exports also reach it through groups, tee and helper files.
+#   5. Exports written by echo or printf quote every value with printf %q,
+#      so no value can end the quoting or run a command when later steps
+#      source $BASH_ENV. Everything after export NAME= up to a \n, the end
+#      of the quoted string, or (outside quotes) a space must be %q or
+#      plain text. This applies to every printed export, including one in
+#      a substitution, not only to lines that name $BASH_ENV: exports also
+#      reach it through groups, tee and helper files.
 #   6. eval only runs code the orb itself includes: a variable whose name
 #      ends in _LIB or _SCRIPT.
 #
 # Each line is split into its commands at ;, &, |, && and || outside quotes,
-# and every command is checked on its own. Checks 3 and 6 also look inside
-# each $(...) or backtick substitution, and a command may follow keywords,
-# a one-line function declaration, a case pattern, variable assignments,
-# redirections, and command or builtin. A >&2 only counts outside quotes and
-# comments. Commands that span lines, or a { ...; } >&2 group over several
-# lines, are not followed: write one message command per line with its own
-# >&2.
+# and every command is checked on its own. Checks 3, 5 and 6 also split and
+# check the commands inside each $(...), <(...), >(...) or backtick
+# substitution, in double quotes or none (single quotes make it text). A command may follow keywords, a one-line
+# function declaration, a case pattern, variable assignments (quoted values
+# included), redirections, and command or builtin. A >&2 only counts outside
+# quotes and comments. A heredoc that is never closed fails the check,
+# since everything after it would be skipped as data. Commands that span
+# lines, or a { ...; } >&2 group over several lines, are not followed: write
+# one message command per line with its own >&2.
 #
 # This is a line check of the ordinary spellings, not a shell parser. Code
 # can still hide from it (a quoted command word such as 'eval', a command
@@ -124,22 +130,98 @@ if [[ ${#scripts[@]} -eq 0 ]]; then
     exit 0
 fi
 
+# A variable assignment word; its value may hold quoted text or a $(...)
+# with spaces in it.
+assignment="[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|\\\$\\([^)]*\\)|[^[:space:]\"'])*"
 # Where a command word starts within one command: after keywords, !, {, (,
 # a one-line function declaration (f() { or function f {), a case pattern,
 # variable assignments and redirections, behind the command or builtin
-# wrappers, and after a backslash (\eval).
-lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*\{[[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+\{[[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)[[:space:]]+)*\\?'
+# wrappers (with command's -p or --), and after a backslash (\eval).
+lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*\{[[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+\{[[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
 allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"[[:space:]]*([)`].*)?$'
-# What may come before an echo or printf's message text: options and
-# redirections, and for printf a bare '%s\n' format.
-before_text='^([[:space:]]*(-[A-Za-z-]*|[0-9]*>&[0-9]+|[0-9]*>>?[[:space:]]*[^[:space:]]+)[[:space:]]+)*'
+# What may come before an echo or printf's message text: redirections, the
+# options echo takes (-n, -e and -E; echo prints any other, -- included) or
+# printf's --, and for printf a bare '%s\n' format.
+redirection='[0-9]*>&[0-9]+|[0-9]*>>?[[:space:]]*[^[:space:]]+'
+echo_before_text='^([[:space:]]*(-[neE]+|'"${redirection}"')[[:space:]]+)*'
+printf_before_text='^([[:space:]]*(--|'"${redirection}"')[[:space:]]+)*'
 printf_format=$'(["\']%s(\\\\n)?["\'][[:space:]]+)?'
 text_start=$'["\']?(ERROR|WARN):'
-assignment_re='^([A-Za-z_][A-Za-z0-9_]*|%[a-z])=([^[:space:]\\]*)[[:space:]]*(.*)'
 # A >&2 or 1>&2 (3>&2 sends descriptor 3, not stdout).
 stderr_re='(^|[^0-9])1?>&2([^0-9]|$)'
 # A heredoc's start: <<WORD, <<-WORD, <<'WORD' or <<"WORD", but not <<<.
-heredoc_re="(^|[^<])<<(-?)[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)"
+heredoc_re="(^|[^<])<<(-?)[[:space:]]*('([^']*)'|\"([^\"]*)\"|([^[:space:];&|<>()'\"]+))"
+# Text up to the first unescaped double quote.
+double_quoted_re='^(([^"\\]|\\.)*)'
+
+# unsafe_export TEXT: succeeds if an export NAME= in TEXT takes a value that
+# is neither %q nor plain text. The value ends at a printf \n, at the quote
+# that closes the string the export is written in, or, outside quotes, at a
+# space.
+unsafe_export() {
+    local text=$1 quote="" char value i
+    for ((i = 0; i < ${#text}; i++)); do
+        char=${text:i:1}
+        if [[ -n "${quote}" && "${char}" == "${quote}" ]]; then
+            quote=""
+            continue
+        elif [[ "${quote}" != "'" && "${char}" == "\\" ]]; then
+            i=$((i + 1))
+            continue
+        elif [[ -z "${quote}" && ( "${char}" == "'" || "${char}" == '"' ) ]]; then
+            quote=${char}
+            continue
+        fi
+        [[ "${text:i}" =~ ^export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*|%[a-z])=(.*) ]] || continue
+        value=${BASH_REMATCH[2]}
+        case "${quote}" in
+            "'") value=${value%%\'*} ;;
+            '"') [[ "${value}" =~ ${double_quoted_re} ]] && value=${BASH_REMATCH[1]} ;;
+            *) value=${value%%[[:space:]]*} ;;
+        esac
+        value=${value%%\\n*}
+        value=${value//%q/}
+        if [[ "${value}" == *[\$%\`]* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# find_substitutions TEXT: sets positions to TEXT and to the text after each
+# $( or backtick in it that is not inside single quotes, and after each <(
+# or >( outside quotes.
+find_substitutions() {
+    local text=$1 quote="" char i
+    positions=("${text}")
+    for ((i = 0; i < ${#text}; i++)); do
+        char=${text:i:1}
+        if [[ "${quote}" == "'" ]]; then
+            [[ "${char}" != "'" ]] || quote=""
+        elif [[ "${char}" == "\\" ]]; then
+            i=$((i + 1))
+        elif [[ "${char}" == '"' ]]; then
+            if [[ -z "${quote}" ]]; then quote='"'; else quote=""; fi
+        elif [[ "${char}" == "'" && -z "${quote}" ]]; then
+            quote="'"
+        elif [[ "${char}" == '`' ]]; then
+            positions+=("${text:i+1}")
+        elif [[ "${char}" == '$' && "${text:i+1:1}" == "(" ]]; then
+            positions+=("${text:i+2}")
+        elif [[ -z "${quote}" && ( "${char}" == "<" || "${char}" == ">" ) && "${text:i+1:1}" == "(" ]]; then
+            positions+=("${text:i+2}")
+        fi
+    done
+}
+
+# fail_line MESSAGE: reports MESSAGE for the current line, once.
+declare -A reported=()
+fail_line() {
+    if [[ -z "${reported[$1]:-}" ]]; then
+        reported[$1]=1
+        fail "${where}: $1"
+    fi
+}
 
 for script in "${scripts[@]}"; do
     path="${root}/${script}"
@@ -150,7 +232,8 @@ for script in "${scripts[@]}"; do
     fi
 
     # 2. The first command, skipping comments, blank lines, and the bash
-    # version guard install.sh runs before it.
+    # version guard install.sh runs before it (but not an else or elif in
+    # that guard, which would run before the set command).
     if [[ "${script}" != */lib/* ]]; then
         want="set -euo pipefail"
         if grep -qE '^# shell-conventions: no-errexit [^ ]' "${path}"; then
@@ -159,6 +242,7 @@ for script in "${scripts[@]}"; do
         first=$(awk '
             /^[[:space:]]*(#|$)/ { next }
             /^if \[ -z "\$\{BASH_VERSION:-\}" \]/ { guard = 1 }
+            guard && /^[[:space:]]*(else|elif)([[:space:];]|$)/ { print; exit }
             guard { if ($0 ~ /^fi$/) guard = 0; next }
             { print; exit }
         ' "${path}")
@@ -192,7 +276,8 @@ for script in "${scripts[@]}"; do
             for ((c = 0; c < ${#commands[@]}; c++)); do
                 # $(( a << b )) is a shift, not a heredoc.
                 if [[ "${skeletons[c]}" == *"<<"* && "${skeletons[c]}" != *"(("* && "${commands[c]}" =~ ${heredoc_re} ]]; then
-                    heredoc=${BASH_REMATCH[3]}
+                    heredoc="${BASH_REMATCH[4]}${BASH_REMATCH[5]}${BASH_REMATCH[6]//\\/}"
+                    heredoc_line=${lineno}
                     strip_tabs=false
                     if [[ "${BASH_REMATCH[2]}" == "-" ]]; then
                         strip_tabs=true
@@ -204,89 +289,100 @@ for script in "${scripts[@]}"; do
         [[ "${line}" =~ ^[[:space:]]*# ]] && continue
         [[ "${line}" =~ (echo|printf|set|eval) ]] || continue
         where="${script}:${lineno}"
+        reported=()
         split_commands "${line}"
+        line_commands=("${commands[@]}")
+        line_skeletons=("${skeletons[@]}")
 
-        # A { ...; } >&2 or ( ...; ) >&2 group on this line sends every
-        # command in it to stderr.
-        group_to_stderr=false
-        if [[ "${skeletons[-1]}" =~ ^[[:space:]]*[\}\)][[:space:]]*(1?>&2)([[:space:]]|$) ]]; then
-            group_to_stderr=true
+        # A { ...; } >&2 or ( ...; ) >&2 group that ends this line sends the
+        # commands in it, from its opening { or ( on, to stderr.
+        group_start=${#line_commands[@]}
+        last=$((${#line_commands[@]} - 1))
+        if [[ "${line_skeletons[last]}" =~ ^[[:space:]]*[\}\)][[:space:]]*(1?>&2)([[:space:]]|$) ]]; then
+            depth=0
+            for ((c = last; c >= 0; c--)); do
+                if [[ "${line_skeletons[c]}" =~ ^[[:space:]]*[\}\)] ]]; then
+                    depth=$((depth + 1))
+                fi
+                if [[ "${line_skeletons[c]}" =~ ^[[:space:]]*(\{[[:space:]]|\() ]]; then
+                    depth=$((depth - 1))
+                    if [[ "${depth}" -eq 0 ]]; then
+                        group_start=${c}
+                        break
+                    fi
+                fi
+            done
         fi
 
-        for ((c = 0; c < ${#commands[@]}; c++)); do
-            cmd=${commands[c]}
-            skeleton=${skeletons[c]}
-            # Checks 3 and 6 look at the command and at the text after each
-            # $( or backtick in it.
-            positions=("${cmd}")
-            rest=${cmd}
-            while [[ "${rest}" =~ (\$\(|\`)(.*) ]]; do
-                rest=${BASH_REMATCH[2]}
-                positions+=("${rest}")
-            done
+        for ((c = 0; c < ${#line_commands[@]}; c++)); do
+            cmd=${line_commands[c]}
+            skeleton=${line_skeletons[c]}
+            # Checks 3, 5 and 6 read the command and the commands in each
+            # substitution in it.
+            find_substitutions "${cmd}"
             for text in "${positions[@]}"; do
-                # 3. History and xtrace: any -...x... option or -o xtrace
-                # before the -- that ends set's options.
-                if [[ "${text}" =~ ${lead}set([[:space:]]|$) ]]; then
-                    options=${text%%[[:space:]]--[[:space:]]*}
-                    options=${options%[[:space:]]--}
-                    if [[ "${options}" =~ [[:space:]]\+o[[:space:]]+history ]]; then
-                        fail "${where}: remove 'set +o history'; it does nothing in a non-interactive shell"
+                split_commands "${text}"
+                for piece in "${commands[@]}"; do
+                    # 3. History and xtrace: any -...x... option or -o xtrace
+                    # before the -- that ends set's options.
+                    if [[ "${piece}" =~ ${lead}set([[:space:]]|$) ]]; then
+                        options=${piece%%[[:space:]]--[[:space:]]*}
+                        options=${options%[[:space:]]--}
+                        if [[ "${options}" =~ [[:space:]]\+o[[:space:]]+history ]]; then
+                            fail_line "remove 'set +o history'; it does nothing in a non-interactive shell"
+                        fi
+                        if [[ "${options}" =~ [[:space:]]-[A-Za-z]*x[A-Za-z]*([[:space:]]|[\)\}&|\`]|$) ||
+                            "${options}" =~ -o[[:space:]]+xtrace([[:space:]]|[\)\}&|\`]|$) ]]; then
+                            fail_line "do not enable xtrace; it prints secrets"
+                        fi
                     fi
-                    if [[ "${options}" =~ [[:space:]]-[A-Za-z]*x[A-Za-z]*([[:space:]]|[\)\}&|\`]|$) ||
-                        "${options}" =~ -o[[:space:]]+xtrace([[:space:]]|[\)\}&|\`]|$) ]]; then
-                        fail "${where}: do not enable xtrace; it prints secrets"
+                    # 5. Exports: every value printed after export NAME= is
+                    # %q, or text with no expansion or conversion in it.
+                    if [[ "${in_heredoc}" == false && "${piece}" == *export* && "${piece}" =~ ${lead}(echo|printf)([[:space:]]|$) ]] &&
+                        unsafe_export "${piece}"; then
+                        fail_line "write exports with printf 'export %s=%q\\n' NAME \"\$value\""
                     fi
-                fi
-                # 6. eval.
-                if [[ "${text}" =~ ${lead}eval([[:space:]]|$) ]] && ! [[ "${text}" =~ ${lead}${allowed_eval} ]]; then
-                    fail "${where}: eval may only run orb code (\"\${NAME_LIB}\" or \"\${NAME_SCRIPT}\")"
-                fi
+                    # 6. eval.
+                    if [[ "${piece}" =~ ${lead}eval([[:space:]]|$) ]] && ! [[ "${piece}" =~ ${lead}${allowed_eval} ]]; then
+                        fail_line "eval may only run orb code (\"\${NAME_LIB}\" or \"\${NAME_SCRIPT}\")"
+                    fi
+                done
             done
 
+            # 4. Messages, for a command that prints (not one inside a
+            # substitution, whose output is captured, and not printf -v,
+            # which assigns a variable).
             if [[ "${in_heredoc}" == false && "${cmd}" =~ ${lead}(echo|printf)([[:space:]]|$) ]]; then
                 command_word=${BASH_REMATCH[0]}
                 arguments=${cmd:${#command_word}}
-                # 4. Message prefixes.
+                if [[ "${command_word}" =~ printf[[:space:]]*$ && "${arguments}" =~ ^[[:space:]]*-v[[:space:]] ]]; then
+                    continue
+                fi
                 # A prefix is a whole word: failOnError: is a YAML key.
                 if [[ "${cmd}" =~ (^|[^A-Za-z0-9_])(Error|FATAL|WARNING|Warning): ]]; then
-                    fail "${where}: use ERROR: or WARN:, not ${BASH_REMATCH[2]}:"
+                    fail_line "use ERROR: or WARN:, not ${BASH_REMATCH[2]}:"
                 fi
                 if [[ "${cmd}" =~ (^|[^A-Za-z0-9_])(ERROR|WARN): ]]; then
                     prefix=${BASH_REMATCH[2]}
-                    message_re=${before_text}
                     if [[ "${command_word}" =~ printf[[:space:]]*$ ]]; then
-                        message_re+=${printf_format}
+                        message_re=${printf_before_text}${printf_format}
+                    else
+                        message_re=${echo_before_text}
                     fi
                     message_re+=${text_start}
                     if ! [[ "${arguments}" =~ ${message_re} ]]; then
-                        fail "${where}: start the message text with ${prefix}:"
+                        fail_line "start the message text with ${prefix}:"
                     fi
-                    if ! [[ "${skeleton}" =~ ${stderr_re} || "${group_to_stderr}" == true ]]; then
-                        fail "${where}: ${prefix}: messages go to stderr (>&2)"
+                    if ! [[ "${skeleton}" =~ ${stderr_re} || ${c} -ge ${group_start} ]]; then
+                        fail_line "${prefix}: messages go to stderr (>&2)"
                     fi
-                fi
-                # 5. Exports: every NAME= assignment after an export takes
-                # its value from %q, or from text with no expansion or
-                # conversion in it.
-                rest=${cmd}
-                unsafe_export=false
-                while [[ "${rest}" =~ export[[:space:]]+(.*) ]]; do
-                    rest=${BASH_REMATCH[1]}
-                    while [[ "${rest}" =~ ${assignment_re} ]]; do
-                        value=${BASH_REMATCH[2]}
-                        rest=${BASH_REMATCH[3]}
-                        if [[ "${value}" != "%q" && ( "${value}" == *'$'* || "${value}" == *%* || "${value}" == *'`'* ) ]]; then
-                            unsafe_export=true
-                        fi
-                    done
-                done
-                if [[ "${unsafe_export}" == true ]]; then
-                    fail "${where}: write exports with printf 'export %s=%q\\n' NAME \"\$value\""
                 fi
             fi
         done
     done < "${path}"
+    if [[ -n "${heredoc}" ]]; then
+        fail "${script}:${heredoc_line}: the heredoc <<${heredoc} is never closed, so checks 4 and 5 skipped the rest of the file"
+    fi
 done
 
 if [[ ${failures} -gt 0 ]]; then
