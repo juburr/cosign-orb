@@ -144,10 +144,10 @@ fi
 # or $((...)) with spaces in it.
 assignment="[A-Za-z_][A-Za-z0-9_]*\\+?=(\"[^\"]*\"|'[^']*'|\\\$\\(\\([^)]*\\)\\)|\\\$\\([^)]*\\)|[^[:space:]\"'();|&<>])*"
 # Where a command word starts within one command: after keywords, !, {, (,
-# a one-line function declaration (f() { or function f {), a case pattern,
-# variable assignments and redirections, behind the command or builtin
-# wrappers (with command's -p or --), and after a backslash (\eval).
-lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*\{[[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+\{[[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
+# a one-line function declaration (f() {, f() ( or function f {), a case
+# pattern, variable assignments and redirections, behind the command or
+# builtin wrappers (with command's -p or --), and after a backslash (\eval).
+lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*[{(][[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+[{(][[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
 # An allowed eval may redirect its output (eval "${X_LIB}" 2>/dev/null).
 allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*[<>]+&?[[:space:]]*[^[:space:]]+)*[[:space:]]*([)`].*)?$'
 # What may come before an echo or printf's message text: redirections, the
@@ -156,8 +156,8 @@ allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*
 redirection='[0-9]*>&[0-9]+|[0-9]*>>?[[:space:]]*[^[:space:]]+'
 echo_before_text='^([[:space:]]*(-[neE]+|'"${redirection}"')[[:space:]]+)*'
 printf_before_text='^([[:space:]]*(--|'"${redirection}"')[[:space:]]+)*'
-printf_format=$'(["\']%s(\\\\n)?["\'][[:space:]]+)?'
-text_start=$'["\']?(ERROR|WARN):'
+printf_format=$'(\\$?["\']%s(\\\\n)?["\'][[:space:]]+)?'
+text_start=$'(\\$?["\'])?(ERROR|WARN):'
 # A >&2 or 1>&2 (3>&2 and {fd}>&2 send another descriptor, not stdout).
 stderr_re='(^|[^0-9}])1?>&2([^0-9]|$)'
 # A heredoc's start: <<WORD, <<-WORD, <<'WORD' or <<"WORD", but not <<<.
@@ -345,8 +345,8 @@ for script in "${scripts[@]}"; do
                         if [[ "${options}" =~ [[:space:]]\+o[[:space:]]+history ]]; then
                             fail_line "remove 'set +o history'; it does nothing in a non-interactive shell"
                         fi
-                        if [[ "${options}" =~ [[:space:]]-[A-Za-z]*x[A-Za-z]*([[:space:]]|[\)\}&|\`]|$) ||
-                            "${options}" =~ -o[[:space:]]+xtrace([[:space:]]|[\)\}&|\`]|$) ]]; then
+                        if [[ "${options}" =~ [[:space:]]-[A-Za-z]*x[A-Za-z]*([[:space:]]|[\)\}&|\`\<\>]|$) ||
+                            "${options}" =~ -o[[:space:]]+xtrace([[:space:]]|[\)\}&|\`\<\>]|$) ]]; then
                             fail_line "do not enable xtrace; it prints secrets"
                         fi
                     fi
@@ -372,11 +372,12 @@ for script in "${scripts[@]}"; do
                 if [[ "${command_word}" =~ printf[[:space:]]*$ && "${arguments}" =~ ^[[:space:]]*-v[[:space:]] ]]; then
                     continue
                 fi
-                # A prefix is a whole word: failOnError: is a YAML key.
-                if [[ "${cmd}" =~ (^|[^A-Za-z0-9_])(Error|FATAL|WARNING|Warning): ]]; then
+                # A prefix is a whole word: failOnError: is a YAML key, and
+                # ${ERROR:-none} expands a variable.
+                if [[ "${cmd}" =~ (^|[^A-Za-z0-9_{$])(Error|FATAL|WARNING|Warning): ]]; then
                     fail_line "use ERROR: or WARN:, not ${BASH_REMATCH[2]}:"
                 fi
-                if [[ "${cmd}" =~ (^|[^A-Za-z0-9_])(ERROR|WARN): ]]; then
+                if [[ "${cmd}" =~ (^|[^A-Za-z0-9_{$])(ERROR|WARN): ]]; then
                     prefix=${BASH_REMATCH[2]}
                     if [[ "${command_word}" =~ printf[[:space:]]*$ ]]; then
                         message_re=${printf_before_text}${printf_format}
