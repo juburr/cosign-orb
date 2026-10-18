@@ -150,8 +150,9 @@ assignment="[A-Za-z_][A-Za-z0-9_]*\\+?=(\"[^\"]*\"|'[^']*'|\\\$\\(\\([^)]*\\)\\)
 # pattern, variable assignments and redirections, behind the command or
 # builtin wrappers (with command's -p or --), and after a backslash (\eval).
 lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*[{(][[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+[{(][[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
-# An allowed eval may redirect its output (eval "${X_LIB}" 2>/dev/null).
-allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*[<>]+&?[[:space:]]*[^[:space:]]+)*[[:space:]]*([)`].*)?$'
+# An allowed eval may redirect its output (eval "${X_LIB}" 2>/dev/null or
+# &>/dev/null).
+allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*&?[<>]+&?[[:space:]]*[^[:space:]]+)*[[:space:]]*([)`].*)?$'
 # A PARAM_ variable holds a parameter's value, even one named ..._SCRIPT.
 param_eval='eval[[:space:]]+"\$\{PARAM_'
 # What may come before an echo or printf's message text: redirections, the
@@ -213,6 +214,8 @@ unsafe_export() {
         [[ "${text:i}" =~ ^export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*|%[a-z])=(.*) ]] || continue
         word_value "${BASH_REMATCH[2]}" "${quote}"
         value=${value%%\\n*}
+        # %% prints a literal %, and %q quotes the value.
+        value=${value//%%/}
         value=${value//%q/}
         if [[ "${value}" == *[\$%\`]* ]]; then
             return 0
