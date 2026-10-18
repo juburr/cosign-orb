@@ -709,10 +709,12 @@ jobs:
     steps:
       # Names only: the values include CIRCLE_OIDC_TOKEN, which CircleCI
       # doesn't mask and which is enough to get a Sigstore certificate for
-      # this project's identity while it is valid.
+      # this project's identity while it is valid. compgen -e prints exported
+      # names and never a value; env | cut would print the later lines of a
+      # value that contains a newline.
       - run:
           name: List environment variable names (sorted)
-          command: env | cut -d= -f1 | sort
+          command: compgen -e | sort
       - cosign-orb/check_oidc
 
   # Integration test: sign and verify blob with Cosign v1
