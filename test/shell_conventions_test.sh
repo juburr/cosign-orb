@@ -20,13 +20,15 @@
 #      Error:, FATAL:, WARNING: and Warning: are not used.
 #   5. Exports written by echo or printf quote every value with printf %q,
 #      so no value can end the quoting or run a command when later steps
-#      source $BASH_ENV. Everything after export NAME= up to a \n, the end
-#      of the quoted string, or (outside quotes) a space must be %q or
-#      plain text. This applies to every printed export, including one in
+#      source $BASH_ENV. Everything after export NAME= up to a \n or the
+#      end of its shell word (a space outside quotes; adjacent quoted
+#      parts, as in 'export A='"$v", are one word) must be %q or plain
+#      text. This applies to every printed export, including one in
 #      a substitution, not only to lines that name $BASH_ENV: exports also
 #      reach it through groups, tee and helper files.
 #   6. eval only runs code the orb itself includes: a variable whose name
-#      ends in _LIB or _SCRIPT.
+#      ends in _LIB or _SCRIPT, and not a PARAM_ variable, which holds a
+#      parameter's value (a parameter named script is PARAM_SCRIPT).
 #
 # Each line is split into its commands at ;, &, |, && and || outside quotes,
 # and every command is checked on its own. Checks 3, 5 and 6 also split and
@@ -150,6 +152,8 @@ assignment="[A-Za-z_][A-Za-z0-9_]*\\+?=(\"[^\"]*\"|'[^']*'|\\\$\\(\\([^)]*\\)\\)
 lead='^[[:space:]]*((if|then|do|else|elif|while|until|time|coproc|!|\{|\()[[:space:]]+|\(|(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\)[[:space:]]*[{(][[:space:]]+|function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]+[{(][[:space:]]+|case[[:space:]].*[[:space:]]in[[:space:]]+|\(?[^[:space:]()]+\)[[:space:]]*)*(('"${assignment}"'|[0-9]*[<>]+&?[[:space:]]*[^[:space:]<>]+)[[:space:]]+)*((command|builtin)([[:space:]]+(-p|--))*[[:space:]]+)*\\?'
 # An allowed eval may redirect its output (eval "${X_LIB}" 2>/dev/null).
 allowed_eval='eval[[:space:]]+"\$\{[A-Z0-9_]+_(LIB|SCRIPT)\}"([[:space:]]+[0-9]*[<>]+&?[[:space:]]*[^[:space:]]+)*[[:space:]]*([)`].*)?$'
+# A PARAM_ variable holds a parameter's value, even one named ..._SCRIPT.
+param_eval='eval[[:space:]]+"\$\{PARAM_'
 # What may come before an echo or printf's message text: redirections, the
 # options echo takes (-n, -e and -E; echo prints any other, -- included) or
 # printf's --, and for printf a bare '%s\n' format.
@@ -162,13 +166,36 @@ text_start=$'(\\$?["\'])?(ERROR|WARN):'
 stderr_re='(^|[^0-9}])1?>&2([^0-9]|$)'
 # A heredoc's start: <<WORD, <<-WORD, <<'WORD' or <<"WORD", but not <<<.
 heredoc_re="(^|[^<])<<(-?)[[:space:]]*('([^']*)'|\"([^\"]*)\"|([^[:space:];&|<>()'\"]+))"
-# Text up to the first unescaped double quote.
-double_quoted_re='^(([^"\\]|\\.)*)'
+# word_value TEXT QUOTE: sets value to TEXT up to the end of the shell word
+# it starts in, inside QUOTE (', " or none), with the quote characters
+# removed. Adjacent quoted parts belong to the same word ('a='"$b" is one),
+# which ends at a space or a ;, &, |, <, >, ( or ) outside quotes.
+word_end='^[[:space:];&|<>()]$'
+word_value() {
+    local text=$1 quote=$2 char j
+    value=""
+    for ((j = 0; j < ${#text}; j++)); do
+        char=${text:j:1}
+        if [[ -n "${quote}" && "${char}" == "${quote}" ]]; then
+            quote=""
+            continue
+        elif [[ "${quote}" != "'" && "${char}" == "\\" ]]; then
+            value+=${text:j:2}
+            j=$((j + 1))
+            continue
+        elif [[ -z "${quote}" && ( "${char}" == "'" || "${char}" == '"' ) ]]; then
+            quote=${char}
+            continue
+        elif [[ -z "${quote}" && "${char}" =~ ${word_end} ]]; then
+            break
+        fi
+        value+=${char}
+    done
+}
 
 # unsafe_export TEXT: succeeds if an export NAME= in TEXT takes a value that
-# is neither %q nor plain text. The value ends at a printf \n, at the quote
-# that closes the string the export is written in, or, outside quotes, at a
-# space.
+# is neither %q nor plain text. The value ends at a printf \n or at the end
+# of its shell word.
 unsafe_export() {
     local text=$1 quote="" char value i
     for ((i = 0; i < ${#text}; i++)); do
@@ -184,12 +211,7 @@ unsafe_export() {
             continue
         fi
         [[ "${text:i}" =~ ^export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*|%[a-z])=(.*) ]] || continue
-        value=${BASH_REMATCH[2]}
-        case "${quote}" in
-            "'") value=${value%%\'*} ;;
-            '"') [[ "${value}" =~ ${double_quoted_re} ]] && value=${BASH_REMATCH[1]} ;;
-            *) value=${value%%[[:space:]]*} ;;
-        esac
+        word_value "${BASH_REMATCH[2]}" "${quote}"
         value=${value%%\\n*}
         value=${value//%q/}
         if [[ "${value}" == *[\$%\`]* ]]; then
@@ -357,8 +379,9 @@ for script in "${scripts[@]}"; do
                         fail_line "write exports with printf 'export %s=%q\\n' NAME \"\$value\""
                     fi
                     # 6. eval.
-                    if [[ "${piece}" =~ ${lead}eval([[:space:]]|[\<\>]|$) ]] && ! [[ "${piece}" =~ ${lead}${allowed_eval} ]]; then
-                        fail_line "eval may only run orb code (\"\${NAME_LIB}\" or \"\${NAME_SCRIPT}\")"
+                    if [[ "${piece}" =~ ${lead}eval([[:space:]]|[\<\>]|$) ]] &&
+                        { ! [[ "${piece}" =~ ${lead}${allowed_eval} ]] || [[ "${piece}" =~ ${lead}${param_eval} ]]; }; then
+                        fail_line "eval may only run orb code (\"\${NAME_LIB}\" or \"\${NAME_SCRIPT}\", not a PARAM_ variable)"
                     fi
                 done
             done
