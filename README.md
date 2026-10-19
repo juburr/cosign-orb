@@ -792,7 +792,7 @@ Setting `fulcio_url` and `rekor_url` is not enough on its own. Cosign must also 
 This is an unofficial, community-maintained orb, and contributions are welcome! Bug reports, feature ideas and pull requests all help.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/juburr/cosign-orb/issues).
-- **Need a newer Cosign release?** Generate its checksums with `src/scripts/install_hash.sh -v <version>`, paste them into the `sha512sums` table in [`src/scripts/install.sh`](src/scripts/install.sh), and open a pull request. The script verifies each binary's keyless Sigstore signature against the Cosign release identity before it prints the entries, and needs `cosign` and `curl`. For a release with nothing published to check against, `-c` takes a checksum from another official source, or `NONE`; it never overrides what the release did publish.
+- **Need a newer Cosign release?** Generate its checksums with `src/scripts/install_hash.sh -v <version>`, paste them into the `sha512sums` table in [`src/scripts/install.sh`](src/scripts/install.sh), and open a pull request. The script verifies each binary's keyless Sigstore signature against the Cosign release identity before it prints the entries, and needs `cosign` plus bash 4 or newer, `mktemp`, `curl`, `sha256sum`, `sha512sum`, `tar` and `gzip`. For a release with nothing published to check against, `-c` takes a checksum from another official source (a SHA-1 one also needs `sha1sum`), or `NONE`; it never overrides what the release did publish.
 - **Before opening a pull request**, run the checks CI runs:
 
   ```bash
