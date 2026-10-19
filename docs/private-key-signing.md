@@ -83,7 +83,7 @@ cat cosign.pub | base64 -w 0 > cosign.pub.b64
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.x
+  cosign: juburr/cosign-orb@1.0.0
 
 jobs:
   build-and-sign:

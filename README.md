@@ -119,7 +119,7 @@ Keyless signing is the recommended setup: sign container images without managing
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@latest
+  cosign: juburr/cosign-orb@1.0.0
 
 jobs:
   build-and-sign-keyless:
@@ -158,7 +158,7 @@ Swap in your registry and image, push, and the signature lands in your registry 
 > **Privacy note:** Keyless signatures are recorded in the public Rekor transparency log, which includes your CircleCI organization and project IDs. To keep signatures off the public log, sign with a private key instead.
 
 > [!TIP]
-> Upgrading from `sign_image`, `verify_image` or the old `generate_key_pair` parameters? See [the renames](#unreleased-renamed-commands-and-parameters) under Upgrading.
+> Upgrading from `sign_image`, `verify_image` or the old `generate_key_pair` parameters? See [the renames](#v100-renamed-commands-and-parameters) under Upgrading.
 
 ## 🍳 Recipes
 
@@ -176,7 +176,7 @@ Sign images using a private key stored in a CircleCI context. See [Key Managemen
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@latest
+  cosign: juburr/cosign-orb@1.0.0
 
 jobs:
   build-and-sign:
@@ -458,7 +458,7 @@ Install Cosign and use it with custom commands:
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@latest
+  cosign: juburr/cosign-orb@1.0.0
 
 jobs:
   example:
@@ -663,7 +663,7 @@ Environment variables are expanded in `install`'s `version` and `install_path`; 
 
 ## 📦 Upgrading
 
-### Unreleased: Renamed Commands and Parameters
+### v1.0.0: Renamed Commands and Parameters
 
 These renames are breaking. Update your configuration when you upgrade:
 
@@ -680,17 +680,17 @@ These renames are breaking. Update your configuration when you upgrade:
 
 `generate_key_pair` no longer takes the password as a literal parameter. To choose one, set the variable named by `password_env_var` (`COSIGN_PASSWORD` by default) before the step, for example from a context. Otherwise a random password is generated, as before. The three `_env_var` parameters are now `env_var_name`s, and the exports written to `$BASH_ENV` are shell-quoted, so a password may contain quotes or other shell syntax.
 
-### Unreleased: Key Files and Messages
+### v1.0.0: Key Files and Messages
 
 Behavior changes:
 - `sign`, `attest`, `sign_blob`, the verify commands and `generate_key_pair` now write `cosign.key` and `cosign.pub` to a private temporary directory instead of the working directory, so a `cosign.key` or `cosign.pub` in your checkout is no longer overwritten and deleted.
 - Error and warning messages now go to stderr, and warnings start with `WARN:` instead of `WARNING:`.
 
-### v0.10.0: arm64 Support
+### v1.0.0: arm64 Support
 
 `install` now detects the runner's architecture and installs `cosign-linux-arm64` on `aarch64` machines, verified against a separate arm64 checksum table. The table covers Cosign 1.9.0 and later; older releases fail on arm64 under the default `strict` mode. Other architectures fail with an error instead of installing an amd64 binary. Cache keys now include the architecture, so the first run after upgrading downloads Cosign again.
 
-### v0.10.0: Checksum Verification Fails Closed
+### v1.0.0: Checksum Verification Fails Closed
 
 `install` now defaults to `verify_checksums: strict`. If you install a Cosign version that this orb has no SHA-512 checksum for, the step fails instead of installing an unverified binary. Earlier releases defaulted to `known_versions`, which printed a warning and installed it anyway.
 
@@ -736,7 +736,7 @@ The `install` command checks the downloaded Cosign binary against a SHA-512 look
 The table covers Cosign 1.0.0 through 3.1.3 on amd64 and 1.9.0 through 3.1.3 on arm64, including the default `version`. `src/scripts/install_hash.sh` prints an entry only after the binary's keyless Sigstore signature verifies against the Cosign release identity; for an older release that publishes no signature, a maintainer supplies the checksum with `-c` (see [Contributing](#-contributing)). If you pin a Cosign release newer than this orb, `strict` fails until the orb is upgraded. Upgrade the orb (or open a PR adding the checksum, generated with `src/scripts/install_hash.sh`) rather than opting out. `known_versions` and `false` remain available for cases where you accept running an unverified binary.
 
 > [!WARNING]
-> **Changed in v0.10.0:** the default was previously `known_versions`, which installed unlisted versions without verification. Pipelines that pin a Cosign version newer than the orb's table now fail until they upgrade the orb or set `verify_checksums: known_versions` explicitly.
+> **Changed in v1.0.0:** the default was previously `known_versions`, which installed unlisted versions without verification. Pipelines that pin a Cosign version newer than the orb's table now fail until they upgrade the orb or set `verify_checksums: known_versions` explicitly.
 
 ## 🌐 Network Access
 
