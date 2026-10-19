@@ -733,7 +733,7 @@ The `install` command checks the downloaded Cosign binary against a SHA-512 look
 | `known_versions` | ✅ Verified; install fails on mismatch | ⚠️ Installed **unverified**, with a warning |
 | `false` | ⚠️ Not verified | ⚠️ Installed **unverified** |
 
-The table covers Cosign 1.0.0 through 3.1.3 on amd64 and 1.9.0 through 3.1.3 on arm64, including the default `version`. Each entry was added only after the binary's keyless Sigstore signature verified against the Cosign release identity. If you pin a Cosign release newer than this orb, `strict` fails until the orb is upgraded. Upgrade the orb (or open a PR adding the checksum, generated with `src/scripts/install_hash.sh`) rather than opting out. `known_versions` and `false` remain available for cases where you accept running an unverified binary.
+The table covers Cosign 1.0.0 through 3.1.3 on amd64 and 1.9.0 through 3.1.3 on arm64, including the default `version`. `src/scripts/install_hash.sh` prints an entry only after the binary's keyless Sigstore signature verifies against the Cosign release identity; for an older release that publishes no signature, a maintainer supplies the checksum with `-c` (see [Contributing](#-contributing)). If you pin a Cosign release newer than this orb, `strict` fails until the orb is upgraded. Upgrade the orb (or open a PR adding the checksum, generated with `src/scripts/install_hash.sh`) rather than opting out. `known_versions` and `false` remain available for cases where you accept running an unverified binary.
 
 > [!WARNING]
 > **Changed in v0.10.0:** the default was previously `known_versions`, which installed unlisted versions without verification. Pipelines that pin a Cosign version newer than the orb's table now fail until they upgrade the orb or set `verify_checksums: known_versions` explicitly.
@@ -792,7 +792,7 @@ Setting `fulcio_url` and `rekor_url` is not enough on its own. Cosign must also 
 This is an unofficial, community-maintained orb, and contributions are welcome! Bug reports, feature ideas and pull requests all help.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/juburr/cosign-orb/issues).
-- **Need a newer Cosign release?** Generate its checksums with `src/scripts/install_hash.sh -v <version>`, paste them into the `sha512sums` table in [`src/scripts/install.sh`](src/scripts/install.sh), and open a pull request. The script verifies each binary's keyless Sigstore signature against the Cosign release identity before it prints the entries, and needs `cosign` and `curl`.
+- **Need a newer Cosign release?** Generate its checksums with `src/scripts/install_hash.sh -v <version>`, paste them into the `sha512sums` table in [`src/scripts/install.sh`](src/scripts/install.sh), and open a pull request. The script verifies each binary's keyless Sigstore signature against the Cosign release identity before it prints the entries, and needs `cosign` and `curl`. For a release with nothing published to check against, `-c` takes a checksum from another official source, or `NONE`; it never overrides what the release did publish.
 - **Before opening a pull request**, run the checks CI runs:
 
   ```bash
