@@ -63,9 +63,11 @@ fi
 printf '%s' "${FAKE_CURL_BODY:-}"
 EOF
 chmod +x "${TMP}/bin/circleci" "${TMP}/bin/curl"
-# The tools the library and the stand-ins use, on every case's PATH; nocli
-# has curl but not the CircleCI CLI.
-for tool in jq base64 cut tr cat; do
+# The tools the library and the stand-ins use, bash included, on every
+# case's PATH, which holds nothing else: the directory bash comes from can
+# hold the real CircleCI CLI too, as on CircleCI's images. nocli has curl but
+# not the CircleCI CLI.
+for tool in bash jq base64 cut tr cat; do
   ln -s "$(command -v "${tool}")" "${TMP}/tools/${tool}"
 done
 ln -s "${TMP}/bin/curl" "${TMP}/nocli/curl"
@@ -73,8 +75,8 @@ ln -s "${TMP}/bin/curl" "${TMP}/nocli/curl"
 FAILURES=0
 
 # lib CLI_DIR [VAR=VALUE...] -- CODE: runs CODE in a bash that has loaded the
-# library, with only CLI_DIR, the tools and bash's own directory on the PATH
-# and the CI variables of this job cleared, then the given variables set.
+# library, with only CLI_DIR and the tools on the PATH and the CI variables
+# of this job cleared, then the given variables set.
 # Sets OUT (stdout), ERR (stderr) and STATUS.
 lib() {
   local dir="$1"
@@ -86,7 +88,7 @@ lib() {
   done
   shift
   set +e
-  OUT=$(env -i PATH="${dir}:${TMP}/tools:$(dirname "$(command -v bash)")" HOME="${TMP}" FAKE_CURL_LOG="${TMP}/curl" \
+  OUT=$(env -i PATH="${dir}:${TMP}/tools" HOME="${TMP}" FAKE_CURL_LOG="${TMP}/curl" \
     ${vars[@]+"${vars[@]}"} bash -c 'set -euo pipefail; eval "$(cat "$1")"; '"$1" _ "${LIB}" 2> "${TMP}/err")
   STATUS=$?
   set -e
