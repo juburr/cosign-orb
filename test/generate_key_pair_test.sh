@@ -161,6 +161,20 @@ if [[ "$STATUS" -eq 0 ]] && grep -qxF "::add-mask::$(exported MY_PASSWORD)" "${T
 else
   fail_case "github masks: exit ${STATUS}"
 fi
+# A workflow command ends at a newline, so each line of a multi-line
+# password is masked on its own, with % and carriage returns escaped as the
+# runner expects, and no line of it is printed outside a mask command.
+run "github multi-line masks" GITHUB_ACTIONS=true PARAM_PASSWORD_ENV_VAR=MY_PASSWORD \
+  MY_PASSWORD=$'first-line\nUNMASKED-SECOND-LINE 100%\r\n\nthird'
+if [[ "$STATUS" -eq 0 ]] && grep -qxF "::add-mask::first-line" "${TMP}/out" \
+  && grep -qxF "::add-mask::UNMASKED-SECOND-LINE 100%25%0D" "${TMP}/out" \
+  && grep -qxF "::add-mask::third" "${TMP}/out" \
+  && ! grep -qx "::add-mask::" "${TMP}/out" \
+  && ! grep -v "^::add-mask::" "${TMP}/out" | grep -qF "UNMASKED-SECOND-LINE"; then
+  printf 'ok: on GitHub Actions each line of a multi-line password is masked\n'
+else
+  fail_case "github multi-line masks: exit ${STATUS}"
+fi
 run "no masks" PARAM_PASSWORD_ENV_VAR=MY_PASSWORD MY_PASSWORD="mask-me-${RANDOM}"
 if [[ "$STATUS" -eq 0 ]] && ! grep -q "::add-mask::" "${TMP}/out"; then
   printf 'ok: elsewhere nothing is masked\n'
