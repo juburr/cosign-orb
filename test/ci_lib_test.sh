@@ -235,6 +235,30 @@ fi
 lib "${TMP}/nocli" -- "ci_jwt_claims 'header.${part}.signature'"
 expect "ci_jwt_claims decodes a base64url payload without padding" 0 "${payload}"
 
+# --- check_oidc on GitHub Actions prints the values to verify with as YAML
+# a workflow can take as it is: the regexp's backslashes in single quotes,
+# since YAML refuses \. inside double quotes.
+payload='{"iss":"https://token.actions.githubusercontent.com","repository":"o/my.repo","job_workflow_ref":"o/my.repo/.github/workflows/ci.yml@refs/heads/main"}'
+part=$(printf '%s' "${payload}" | base64 -w0 | tr '/+' '_-' | tr -d '=')
+set +e
+OUT=$(env -i PATH="${TMP}/nocli:${TMP}/tools" HOME="${TMP}" FAKE_CURL_LOG="${TMP}/curl" "${GITHUB_OIDC[@]}" \
+  GITHUB_REPOSITORY=o/my.repo "FAKE_CURL_BODY={\"value\":\"header.${part}.signature\"}" \
+  SCRIPT_CI_LIB="$(cat "${LIB}")" bash "${ROOT}/src/scripts/check_oidc.sh" 2> "${TMP}/err")
+STATUS=$?
+set -e
+ERR=$(cat "${TMP}/err")
+for line in \
+  '  certificate_oidc_issuer: "https://token.actions.githubusercontent.com"' \
+  '  certificate_identity: "https://github.com/o/my.repo/.github/workflows/ci.yml@refs/heads/main"' \
+  "  certificate_identity_regexp: '^https://github\\.com/o/my\\.repo/\\.github/workflows/'"; do
+  if [[ "${STATUS}" -eq 0 ]] && grep -qxF -- "${line}" <<< "${OUT}"; then
+    printf 'ok: check_oidc prints %s\n' "${line#  }"
+  else
+    printf 'FAIL: check_oidc does not print %s\n    status %s\n    stdout: %s\n    stderr: %s\n' "${line}" "${STATUS}" "${OUT}" "${ERR}"
+    FAILURES=$((FAILURES + 1))
+  fi
+done
+
 if [[ "${FAILURES}" -ne 0 ]]; then
   printf '\n%d failure(s)\n' "${FAILURES}"
   exit 1

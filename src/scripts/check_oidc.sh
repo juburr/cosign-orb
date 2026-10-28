@@ -52,7 +52,8 @@ if ci_github; then
     echo "  certificate_identity: \"${GITHUB_SERVER_URL:-https://github.com}/${WORKFLOW_REF}\""
     echo ""
     echo "  # Option 2: Regexp match (any workflow of this repository, the default in its jobs)"
-    echo "  certificate_identity_regexp: \"$(ci_identity_regexp)\""
+    # Single quotes: YAML refuses the regexp's \. inside double quotes.
+    echo "  certificate_identity_regexp: '$(ci_identity_regexp)'"
     echo ""
     echo "=== OIDC is ready for keyless signing ==="
     exit 0

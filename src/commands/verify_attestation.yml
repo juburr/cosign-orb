@@ -31,7 +31,7 @@ parameters:
     description: |
       Regular expression to match certificate identity (keyless only).
       CircleCI: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/.*"
-      GitHub Actions: "^https://github\.com/<owner>/<repo>/\.github/workflows/"
+      GitHub Actions: '^https://github\.com/<owner>/<repo>/\.github/workflows/'
       If not provided (and certificate_identity is empty), auto-detected from the job.
     default: ""
   certificate_oidc_issuer:
