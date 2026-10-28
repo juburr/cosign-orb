@@ -138,6 +138,7 @@ run_case() {
       TEST_PUBLIC_KEY="$(base64 -w0 "${CASE}/expected.key")" \
       SCRIPT_IMAGE_REF_LIB="$(cat "${SCRIPTS}/lib/image_ref.sh")" \
       SCRIPT_BUNDLE_FORMAT_LIB="$(cat "${SCRIPTS}/lib/bundle_format.sh")" \
+      SCRIPT_CI_LIB="$(cat "${SCRIPTS}/lib/ci.sh")" \
       bash "${SCRIPTS}/${script}.sh" > "${CASE}/out" 2>&1
   )
   status=$?

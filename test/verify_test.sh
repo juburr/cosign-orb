@@ -87,6 +87,7 @@ run_case() {
       PARAM_IMAGE="registry.local:5000/app@sha256:aa" PARAM_KEYLESS=0 PARAM_BUNDLE_FORMAT="$format" \
       PARAM_PUBLIC_KEY=TEST_PUBLIC_KEY TEST_PUBLIC_KEY="$(printf 'not a real key' | base64)" \
       SCRIPT_BUNDLE_FORMAT_LIB="$(cat "$LIB")" \
+      SCRIPT_CI_LIB="$(cat "${ROOT}/src/scripts/lib/ci.sh")" \
       bash "$SCRIPT" > "${TMP}/out" 2>&1
   )
   status=$?

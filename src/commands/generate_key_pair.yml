@@ -3,7 +3,7 @@ description: |
 
   WARNING: This command is intended for development and testing purposes only.
   For production use, store keys securely in a key management system (AWS KMS,
-  HashiCorp Vault, GCP KMS, etc.) or at minimum in CircleCI contexts for reuse.
+  HashiCorp Vault, GCP KMS, etc.) or at minimum in CircleCI contexts or GitHub Actions secrets for reuse.
   The base64-encoded keys and the password are exported to environment variables
   for later steps, and the raw key files are securely deleted after export.
 

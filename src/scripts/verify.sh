@@ -7,14 +7,22 @@
 
 set -euo pipefail
 
+# Load the CI helpers (src/scripts/lib/ci.sh): parameter expansion, booleans,
+# and the job's OIDC identity on CircleCI or GitHub Actions.
+if [[ -z "${SCRIPT_CI_LIB:-}" ]]; then
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_CI_LIB is empty." >&2
+    exit 1
+fi
+eval "${SCRIPT_CI_LIB}"
+
 # Read in orb parameters
-IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
-KEYLESS="${PARAM_KEYLESS:-0}"
+IMAGE=$(ci_subst "${PARAM_IMAGE}")
+KEYLESS=$(ci_bool keyless "${PARAM_KEYLESS:-0}")
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
-CERTIFICATE_IDENTITY=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY:-}" | circleci env subst)
-CERTIFICATE_IDENTITY_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}" | circleci env subst)
-CERTIFICATE_OIDC_ISSUER=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER:-}" | circleci env subst)
-CERTIFICATE_OIDC_ISSUER_REGEXP=$(printf '%s' "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}" | circleci env subst)
+CERTIFICATE_IDENTITY=$(ci_subst "${PARAM_CERTIFICATE_IDENTITY:-}")
+CERTIFICATE_IDENTITY_REGEXP=$(ci_subst "${PARAM_CERTIFICATE_IDENTITY_REGEXP:-}")
+CERTIFICATE_OIDC_ISSUER=$(ci_subst "${PARAM_CERTIFICATE_OIDC_ISSUER:-}")
+CERTIFICATE_OIDC_ISSUER_REGEXP=$(ci_subst "${PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP:-}")
 
 # Only read key-related params if not using keyless
 if [[ "${KEYLESS}" != "1" ]]; then
@@ -125,23 +133,25 @@ if [[ "${KEYLESS}" == "1" ]]; then
     echo ""
     echo "=== Keyless Verification Mode ==="
 
-    # Auto-detect OIDC issuer from CircleCI environment if not provided
+    # Without an issuer, the job's own: a GitHub Actions workflow's, or a
+    # CircleCI organization's (CIRCLE_ORGANIZATION_ID).
     EFFECTIVE_OIDC_ISSUER="${CERTIFICATE_OIDC_ISSUER}"
     EFFECTIVE_OIDC_ISSUER_REGEXP="${CERTIFICATE_OIDC_ISSUER_REGEXP}"
     if [[ -z "${EFFECTIVE_OIDC_ISSUER}" ]] && [[ -z "${EFFECTIVE_OIDC_ISSUER_REGEXP}" ]]; then
-        if [[ -n "${CIRCLE_ORGANIZATION_ID:-}" ]]; then
-            EFFECTIVE_OIDC_ISSUER="https://oidc.circleci.com/org/${CIRCLE_ORGANIZATION_ID}"
-            echo "Auto-detected OIDC issuer from CIRCLE_ORGANIZATION_ID"
+        EFFECTIVE_OIDC_ISSUER=$(ci_oidc_issuer)
+        if [[ -n "${EFFECTIVE_OIDC_ISSUER}" ]]; then
+            echo "Auto-detected the OIDC issuer from the job's environment"
         fi
     fi
 
-    # Auto-detect certificate identity regexp from CircleCI environment if not provided
+    # Without an identity, any of the job's project's: a workflow of this
+    # GitHub repository, or a CircleCI project's pipeline (CIRCLE_PROJECT_ID).
     EFFECTIVE_IDENTITY="${CERTIFICATE_IDENTITY}"
     EFFECTIVE_IDENTITY_REGEXP="${CERTIFICATE_IDENTITY_REGEXP}"
     if [[ -z "${EFFECTIVE_IDENTITY}" ]] && [[ -z "${EFFECTIVE_IDENTITY_REGEXP}" ]]; then
-        if [[ -n "${CIRCLE_PROJECT_ID:-}" ]]; then
-            EFFECTIVE_IDENTITY_REGEXP="https://circleci.com/api/v2/projects/${CIRCLE_PROJECT_ID}/pipeline-definitions/.*"
-            echo "Auto-detected certificate identity regexp from CIRCLE_PROJECT_ID"
+        EFFECTIVE_IDENTITY_REGEXP=$(ci_identity_regexp)
+        if [[ -n "${EFFECTIVE_IDENTITY_REGEXP}" ]]; then
+            echo "Auto-detected the certificate identity regexp from the job's environment"
         fi
     fi
 
@@ -169,7 +179,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
             echo "" >&2
             echo "You can either:" >&2
             echo "  1. Provide certificate_identity or certificate_identity_regexp parameter" >&2
-            echo "  2. Run in a CircleCI environment where CIRCLE_PROJECT_ID is available" >&2
+            echo "  2. Run in a GitHub Actions workflow, or a CircleCI job where CIRCLE_PROJECT_ID is available" >&2
             exit 1
         fi
         # v1 allows skipping identity check
@@ -193,7 +203,7 @@ if [[ "${KEYLESS}" == "1" ]]; then
         echo "" >&2
         echo "You can either:" >&2
         echo "  1. Provide certificate_oidc_issuer or certificate_oidc_issuer_regexp parameter" >&2
-        echo "  2. Run in a CircleCI environment where CIRCLE_ORGANIZATION_ID is available" >&2
+        echo "  2. Run in a GitHub Actions workflow, or a CircleCI job where CIRCLE_ORGANIZATION_ID is available" >&2
         exit 1
     fi
 

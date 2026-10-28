@@ -81,6 +81,22 @@ jobs:
       - run:
           name: Run install contract tests
           command: bash test/install_test.sh
+  test-ci-lib:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run CI helper tests
+          command: bash test/ci_lib_test.sh
+  test-actions:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Run GitHub Actions tests
+          command: bash test/actions_test.sh
 
 workflows:
   lint-pack:
@@ -102,6 +118,10 @@ workflows:
       - test-empty-arrays:
           filters: *filters
       - test-install:
+          filters: *filters
+      - test-ci-lib:
+          filters: *filters
+      - test-actions:
           filters: *filters
       - orb-tools/lint:
           filters: *filters
@@ -127,6 +147,8 @@ workflows:
             - test-key-files
             - test-empty-arrays
             - test-install
+            - test-ci-lib
+            - test-actions
             - orb-tools/lint
             - orb-tools/pack
             - orb-tools/review

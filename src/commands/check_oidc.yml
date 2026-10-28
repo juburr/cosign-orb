@@ -1,8 +1,12 @@
 description: |
-  Verifies that CircleCI OIDC token is available and displays key claims.
-  Use this command to confirm OIDC is properly configured before using keyless signing commands.
+  Verifies that the job's OIDC token is available and displays key claims: CircleCI's
+  CIRCLE_OIDC_TOKEN, or, in a GitHub Actions job, a token from GitHub's token service, which needs
+  the id-token: write permission. Use this command to confirm OIDC is properly configured before
+  using keyless signing commands.
 
 steps:
   - run:
-      name: Check CircleCI OIDC Token
+      name: Check OIDC Token
+      environment:
+        SCRIPT_CI_LIB: << include(scripts/lib/ci.sh) >>
       command: << include(scripts/check_oidc.sh) >>

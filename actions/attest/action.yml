@@ -1,0 +1,92 @@
+name: Attest a container image with Cosign
+description: >
+  Attaches an attestation to a container image using Cosign. Supports private
+  key and keyless attestation. The GitHub Actions twin of the orb's attest
+  command.
+author: juburr
+
+inputs:
+  bundle_format:
+    description: >
+      How the attestation is stored in the registry. Set this to pin the layout
+      so a Cosign upgrade cannot change it. auto: no format flags; Cosign's own
+      default (legacy for Cosign 1 and 2, bundle for Cosign 3). bundle: a
+      Sigstore bundle stored as an OCI 1.1 referrer of the subject. Needs Cosign
+      2.6.0+ for sign, 2.5.0+ for attest. legacy: a sha256-<hex>.sig / .att
+      image tag next to the subject. Deprecated by Cosign 3 and planned for
+      removal in Cosign 4. With keyless signing, only auto and the Cosign
+      major's own default are supported.
+    default: auto
+  fulcio_url:
+    description: >
+      Fulcio CA URL for keyless attestation.
+    default: https://fulcio.sigstore.dev
+  image:
+    description: >
+      Image or OCI artifact to attest, by tag (registry/repo:tag) or by digest
+      (registry/repo@sha256:<hex>). A tag is resolved to a digest before
+      attesting. A digest is attested as given, after checking the registry
+      serves it. Reading the digest requires crane, or docker for container
+      images.
+    required: true
+  keyless:
+    description: >
+      Use keyless attestation with the job's OIDC identity. When enabled,
+      attests using Fulcio certificates and records the attestation in the Rekor
+      transparency log. No private key required. Needs an OIDC token: on
+      CircleCI Cloud or Server 4.x+, or in a GitHub Actions job with the
+      id-token: write permission.
+    default: "false"
+  oidc_issuer:
+    description: >
+      OIDC issuer URL (for private Fulcio instances only). If empty, the job's
+      own issuer is used: its CircleCI organization's, or GitHub Actions'.
+    default: ""
+  password:
+    description: >
+      Name of the environment variable that holds the password for the private
+      key. Ignored when keyless is true. Set the variable in the env of the step
+      (or job) that uses this action, from a secret, or with the
+      generate_key_pair action.
+    default: COSIGN_PASSWORD
+  predicate:
+    description: >
+      Path to the predicate file.
+    required: true
+  predicate_type:
+    description: >
+      The predicate type. Common types are spdx, spdxjson, cyclonedx, and vuln.
+    required: true
+  private_key:
+    description: >
+      Name of the environment variable that holds the base64-encoded private
+      key. Ignored when keyless is true. Set the variable in the env of the step
+      (or job) that uses this action, from a secret, or with the
+      generate_key_pair action.
+    default: COSIGN_PRIVATE_KEY
+  rekor_url:
+    description: >
+      Rekor transparency log URL for keyless attestation.
+    default: https://rekor.sigstore.dev
+
+runs:
+  using: composite
+  steps:
+    - name: Attach Attestation
+      shell: bash
+      env:
+        PARAM_BUNDLE_FORMAT: ${{ inputs.bundle_format }}
+        PARAM_FULCIO_URL: ${{ inputs.fulcio_url }}
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_KEYLESS: ${{ inputs.keyless }}
+        PARAM_OIDC_ISSUER: ${{ inputs.oidc_issuer }}
+        PARAM_PASSWORD: ${{ inputs.password }}
+        PARAM_PREDICATE: ${{ inputs.predicate }}
+        PARAM_PREDICATE_TYPE: ${{ inputs.predicate_type }}
+        PARAM_PRIVATE_KEY: ${{ inputs.private_key }}
+        PARAM_REKOR_URL: ${{ inputs.rekor_url }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/attest.sh"
+        "SCRIPT_BUNDLE_FORMAT_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/bundle_format.sh"
+        "SCRIPT_CI_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/ci.sh"
+        "SCRIPT_IMAGE_REF_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/image_ref.sh"

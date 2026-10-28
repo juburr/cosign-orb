@@ -94,7 +94,9 @@ run_case() {
   set +e
   (
     cd "${TMP}/work"
-    PATH="${TMP}/bin:${PATH}" COSIGN_GIT_VERSION="$version" COSIGN_LOG="$log" \
+    # The keyless cases get their token from the CircleCI stand-in, so a
+    # GitHub Actions runner's GITHUB_ACTIONS must not reach the script.
+    env -u GITHUB_ACTIONS PATH="${TMP}/bin:${PATH}" COSIGN_GIT_VERSION="$version" COSIGN_LOG="$log" \
       PARAM_IMAGE="registry.local:5000/app@${DIGEST}" PARAM_KEYLESS="$keyless" PARAM_BUNDLE_FORMAT=auto \
       PARAM_ANNOTATIONS="" PARAM_PREDICATE=predicate.json PARAM_PREDICATE_TYPE=slsaprovenance \
       PARAM_PRIVATE_KEY=TEST_PRIVATE_KEY PARAM_PASSWORD=TEST_PASSWORD PARAM_PUBLIC_KEY=TEST_PUBLIC_KEY \
@@ -103,6 +105,7 @@ run_case() {
       PARAM_CERTIFICATE_OIDC_ISSUER="https://oidc.circleci.com/org/o" \
       SCRIPT_IMAGE_REF_LIB="$(cat "${SCRIPTS}/lib/image_ref.sh")" \
       SCRIPT_BUNDLE_FORMAT_LIB="$(cat "${SCRIPTS}/lib/bundle_format.sh")" \
+      SCRIPT_CI_LIB="$(cat "${SCRIPTS}/lib/ci.sh")" \
       bash "${SCRIPTS}/${script}.sh" > "$out" 2>&1
   )
   status=$?

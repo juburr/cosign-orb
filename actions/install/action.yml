@@ -1,0 +1,75 @@
+name: Install Cosign
+description: >
+  Installs Cosign for Linux on amd64 or arm64, picked from the machine's CPU
+  architecture, after verifying its SHA-512 checksum. Run this before the orb's
+  other commands. The GitHub Actions twin of the orb's install command.
+author: juburr
+
+inputs:
+  caching:
+    description: >
+      Cache the downloaded release between jobs, keyed by version, CPU
+      architecture and home directory. Only verified releases are cached, and a
+      cached release is verified again before it is installed.
+    default: "true"
+  install_path:
+    description: >
+      Absolute path of the directory to install cosign into. It is created if
+      needed and added to the PATH of later steps when it isn't already on it,
+      and must be writable without root. Defaults to $HOME/bin.
+    default: ""
+  verify_checksums:
+    description: >
+      SHA-512 verification against this orb's checksum table. "strict" (default)
+      fails before downloading anything when the version has no checksum in the
+      table. "known_versions" verifies listed versions and installs unlisted
+      versions unverified, with a warning. "false" skips verification and is not
+      recommended.
+    default: strict
+  version:
+    description: >
+      Version of Cosign to install, such as 3.1.3. A leading "v" is ignored.
+    default: "3.1.3"
+
+runs:
+  using: composite
+  steps:
+    # The key is computed from a file that names the CPU (uname -m), HOME (a
+    # cache is restored to the absolute path it was saved from) and the
+    # version, as the orb's install command computes it.
+    - name: Prepare Cosign cache key
+      id: cache-key
+      if: inputs.caching == 'true' || inputs.caching == '1'
+      shell: bash
+      env:
+        ORB_CACHE_KEY_FILE: ${{ runner.temp }}/cosign-orb-cache-key
+        PARAM_VERSION: ${{ inputs.version }}
+      run: |
+        bash "${GITHUB_ACTION_PATH}/../../src/scripts/cache_key.sh"
+        # Bump v1 when an existing checksum table entry changes, so caches
+        # saved for the old bytes stop being restored.
+        printf 'key=cosign-orb-v1-%s\n' "$(sha256sum < "${ORB_CACHE_KEY_FILE}" | cut -c1-64)" >> "${GITHUB_OUTPUT}"
+    - name: Restore Cosign cache
+      id: restore
+      if: inputs.caching == 'true' || inputs.caching == '1'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/cosign-orb
+        key: ${{ steps.cache-key.outputs.key }}
+    - name: Install Cosign
+      shell: bash
+      env:
+        PARAM_CACHING: ${{ inputs.caching }}
+        PARAM_INSTALL_PATH: ${{ inputs.install_path }}
+        PARAM_VERIFY_CHECKSUMS: ${{ inputs.verify_checksums }}
+        PARAM_VERSION: ${{ inputs.version }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/install.sh"
+    # A saved cache can't be replaced, so it is only saved when none was
+    # restored. Like the orb's save_cache, it is saved right after the
+    # install, not at the end of the job.
+    - name: Save Cosign cache
+      if: (inputs.caching == 'true' || inputs.caching == '1') && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/cosign-orb
+        key: ${{ steps.cache-key.outputs.key }}

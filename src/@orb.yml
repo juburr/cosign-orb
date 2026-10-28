@@ -2,6 +2,7 @@ version: 2.1
 
 description: |
   Simplifies installation and use of cosign within CircleCI, used to sign artifacts such as container images.
+  The same commands are also available as GitHub Actions, in the actions/ directory of the source repository.
 
 display:
   home_url: "https://github.com/juburr/cosign-orb"

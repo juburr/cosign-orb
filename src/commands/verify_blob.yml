@@ -11,8 +11,9 @@ parameters:
     description: |
       Use keyless verification. When enabled, verifies using certificate identity and OIDC issuer
       instead of a public key. Requires the certificate file from keyless signing.
-      In CircleCI environments, verification parameters are auto-detected from
-      CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID if not explicitly provided.
+      An identity and issuer left empty are auto-detected from the job: on CircleCI from
+      CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID, and on GitHub Actions from the repository,
+      so that signatures made by any of its workflows verify.
     default: false
   certificate:
     type: string
@@ -28,23 +29,25 @@ parameters:
     type: string
     description: |
       Expected identity in the Fulcio certificate (keyless only).
-      For CircleCI, this is the certificate subject URL.
-      Example: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/<pipeline-def-id>"
-      If not provided, auto-detected from CIRCLE_PROJECT_ID (uses regexp matching).
+      CircleCI: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/<pipeline-def-id>"
+      GitHub Actions: "https://github.com/<owner>/<repo>/.github/workflows/<file>@<ref>"
+      If neither this nor certificate_identity_regexp is set, a regexp is auto-detected from the job.
     default: ""
   certificate_identity_regexp:
     type: string
     description: |
       Regular expression to match certificate identity (keyless only).
-      Example: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/.*"
-      If not provided (and certificate_identity is empty), auto-generated from CIRCLE_PROJECT_ID.
+      CircleCI: "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/.*"
+      GitHub Actions: '^https://github\.com/<owner>/<repo>/\.github/workflows/'
+      If not provided (and certificate_identity is empty), auto-detected from the job.
     default: ""
   certificate_oidc_issuer:
     type: string
     description: |
       Expected OIDC issuer in the Fulcio certificate (keyless only).
-      For CircleCI: "https://oidc.circleci.com/org/<org-id>"
-      If not provided, auto-detected from CIRCLE_ORGANIZATION_ID.
+      CircleCI: "https://oidc.circleci.com/org/<org-id>"
+      GitHub Actions: "https://token.actions.githubusercontent.com"
+      If not provided, auto-detected from the job.
     default: ""
   certificate_oidc_issuer_regexp:
     type: string
@@ -65,4 +68,5 @@ steps:
         PARAM_CERTIFICATE_IDENTITY_REGEXP: << parameters.certificate_identity_regexp >>
         PARAM_CERTIFICATE_OIDC_ISSUER: << parameters.certificate_oidc_issuer >>
         PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP: << parameters.certificate_oidc_issuer_regexp >>
+        SCRIPT_CI_LIB: << include(scripts/lib/ci.sh) >>
       command: << include(scripts/verify_blob.sh) >>

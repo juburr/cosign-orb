@@ -1,0 +1,43 @@
+name: Generate a Cosign key pair
+description: >
+  Generates a Cosign key pair for signing and verification. WARNING: This
+  command is intended for development and testing purposes only. For production
+  use, store keys securely in a key management system (AWS KMS, HashiCorp Vault,
+  GCP KMS, etc.) or at minimum in CircleCI contexts or GitHub Actions secrets
+  for reuse. The base64-encoded keys and the password are exported to
+  environment variables for later steps, and the raw key files are securely
+  deleted after export. To choose the password, set the variable named by
+  password_env_var before this step. Otherwise a random password is generated.
+  The GitHub Actions twin of the orb's generate_key_pair command.
+author: juburr
+
+inputs:
+  password_env_var:
+    description: >
+      Name of the environment variable that holds the password for the private
+      key. If the variable is set and not empty, its value encrypts the private
+      key. Otherwise a random password is generated. Either way, the password is
+      written to this variable for later steps.
+    default: COSIGN_PASSWORD
+  private_key_env_var:
+    description: >
+      Name of the environment variable to write the base64-encoded private key
+      to, for later steps.
+    default: COSIGN_PRIVATE_KEY
+  public_key_env_var:
+    description: >
+      Name of the environment variable to write the base64-encoded public key
+      to, for later steps.
+    default: COSIGN_PUBLIC_KEY
+
+runs:
+  using: composite
+  steps:
+    - name: Generate Cosign key pair
+      shell: bash
+      env:
+        PARAM_PASSWORD_ENV_VAR: ${{ inputs.password_env_var }}
+        PARAM_PRIVATE_KEY_ENV_VAR: ${{ inputs.private_key_env_var }}
+        PARAM_PUBLIC_KEY_ENV_VAR: ${{ inputs.public_key_env_var }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/generate_key_pair.sh"
