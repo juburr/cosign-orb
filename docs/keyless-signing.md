@@ -104,7 +104,7 @@ First, confirm OIDC tokens are available in your environment:
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
 
 jobs:
   check-oidc:
@@ -480,7 +480,7 @@ When signing and verifying within the same CircleCI organization, everything is 
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
 
 jobs:
   build-and-sign:
@@ -542,7 +542,7 @@ For cross-project verification, stricter identity matching, or running outside C
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
 
 jobs:
   build-and-sign:
