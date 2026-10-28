@@ -4,9 +4,10 @@
 # written for CircleCI, where a step hands values to later steps by appending
 # exports to the file BASH_ENV names, which CircleCI sources before each
 # step. GitHub Actions has no such file, so this gives the script a fresh
-# one, then passes on what sourcing it changes: new PATH entries through
-# GITHUB_PATH, and other variables through GITHUB_ENV. It is identical in
-# every juburr orb that ships GitHub Actions.
+# one, then passes on what sourcing it changes, and every variable it
+# exports, changed or not: new PATH entries through GITHUB_PATH, and other
+# variables through GITHUB_ENV. It is identical in every juburr orb that
+# ships GitHub Actions.
 #
 # Usage: run_script.sh SCRIPT [NAME=FILE ...]
 #
@@ -17,6 +18,9 @@
 # The script's exit code is the step's; nothing is passed on when it fails.
 
 set -euo pipefail
+# The step's environment and what the script exports can hold secrets, which
+# xtrace (SHELLOPTS, or set -x in the job's BASH_ENV) would print quoted.
+set +o xtrace
 
 if [[ $# -lt 1 || ! -f "$1" ]]; then
     echo "ERROR: Usage: run_script.sh SCRIPT [NAME=FILE ...], where SCRIPT is one of the orb's scripts." >&2
@@ -74,6 +78,16 @@ while IFS= read -r -d '' entry; do
     BEFORE[${entry%%=*}]=${entry#*=}
 done < "${WORK}/before"
 
+# The variables the script exports by name (export NAME=...), which are
+# passed on even when the step already had the same value: a value from the
+# step's own env reaches no later step unless it is written to GITHUB_ENV.
+declare -A EXPORTED=()
+while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ ^[[:space:]]*export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+        EXPORTED[${BASH_REMATCH[1]}]=1
+    fi
+done < "${BASH_ENV}"
+
 # delimiter VALUE: a random line that VALUE doesn't contain, to end a
 # multi-line GITHUB_ENV value.
 delimiter() {
@@ -93,7 +107,7 @@ while IFS= read -r -d '' entry; do
     case "${name}" in
         _ | SHLVL | PWD | OLDPWD | BASH_ENV | BASH_FUNC_* | SCRIPT_*) continue ;;
     esac
-    if [[ -n "${BEFORE[${name}]+set}" && "${BEFORE[${name}]}" == "${value}" ]]; then
+    if [[ -n "${BEFORE[${name}]+set}" && "${BEFORE[${name}]}" == "${value}" && -z "${EXPORTED[${name}]+set}" ]]; then
         continue
     fi
     if [[ "${name}" == PATH ]]; then

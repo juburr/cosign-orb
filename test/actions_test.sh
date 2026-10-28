@@ -20,9 +20,11 @@
 #   - every action another one uses is pinned to a full commit SHA
 #   - actions/run_script.sh runs a script and passes on what it exports for
 #     later steps: PATH entries through GITHUB_PATH, in order, and other
-#     variables through GITHUB_ENV, multi-line values included; it passes on
-#     nothing when the script fails, keeps its exit code, and hands the
-#     script a library the way CircleCI's << include() >> does
+#     variables through GITHUB_ENV, multi-line values included, and values
+#     the step already had included; it passes on nothing when the script
+#     fails, keeps its exit code, hands the script a library the way
+#     CircleCI's << include() >> does, and traces nothing, even in a job
+#     that traces every step
 #
 # Identical in every juburr orb that ships GitHub Actions.
 #
@@ -271,9 +273,22 @@ run 'notes=$'"'"'line one\n\nline three'"'"'
 printf '"'"'export %s=%q\n'"'"' NOTES "${notes}" >> "${BASH_ENV}"'
 check "keeps a multi-line value" same "$(env_value NOTES)" $'line one\n\nline three'
 run 'printf '"'"'export %s=%q\n'"'"' KEPT "$KEPT" >> "${BASH_ENV}"' KEPT=same
-check "leaves out a variable it doesn't change" none "$(github_env)"
+check "passes on a variable it exports with the value the step already had" same "$(env_value KEPT)" "same"
+run 'printf '"'"'export %s=%q\n'"'"' TOOL_DIGEST sha256:abc >> "${BASH_ENV}"' UNTOUCHED=same
+check "and no variable it doesn't export" same "$(github_env | grep -c '^UNTOUCHED<<')" 0
 run 'printf '"'"'export %s=%q\n'"'"' QUOTED "a \"b\" \$c \`d\`" >> "${BASH_ENV}"'
 check "passes quotes, dollars and backticks as they are" same "$(env_value QUOTED)" 'a "b" $c `d`'
+
+begin "run_script.sh: tracing"
+# A job can trace every step with SHELLOPTS or set -x in its BASH_ENV. The
+# quoted forms xtrace prints don't match the secrets GitHub masks.
+SECRET_VALUE="prefix'secret-suffix"
+run 'printf '"'"'export %s=%q\n'"'"' TOKEN "$TOKEN" >> "${BASH_ENV}"' SHELLOPTS=xtrace "TOKEN=${SECRET_VALUE}"
+check "traces nothing in a job that exports SHELLOPTS=xtrace" none "$(grep -F 'secret-suffix' <<< "${OUTPUT}")"
+check "and still passes the value on" same "$(env_value TOKEN)" "${SECRET_VALUE}"
+printf 'set -x\n' > "${WORK}/job-bash-env"
+run 'printf '"'"'export %s=%q\n'"'"' TOKEN "$TOKEN" >> "${BASH_ENV}"' BASH_ENV="${WORK}/job-bash-env" "TOKEN=${SECRET_VALUE}"
+check "or that sets -x in its BASH_ENV" none "$(grep -F 'secret-suffix' <<< "${OUTPUT}")"
 
 begin "run_script.sh: libraries"
 printf '%s\n' 'lib_greet() { echo "hello from the library"; }' > "${WORK}/lib.sh"

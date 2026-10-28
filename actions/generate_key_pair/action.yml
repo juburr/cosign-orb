@@ -17,9 +17,7 @@ inputs:
       Name of the environment variable that holds the password for the private
       key. If the variable is set and not empty, its value encrypts the private
       key. Otherwise a random password is generated. Either way, the password is
-      written to this variable for later steps. To give it a password, set the
-      variable in the job's env, not only this step's: a value the step didn't
-      change isn't passed on to later steps.
+      written to this variable for later steps.
     default: COSIGN_PASSWORD
   private_key_env_var:
     description: >
