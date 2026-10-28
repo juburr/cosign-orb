@@ -1,6 +1,6 @@
 # Keyless Signing Guide
 
-This guide covers keyless container image signing and attestation using CircleCI OIDC tokens and the Sigstore public infrastructure (Fulcio and Rekor).
+This guide covers keyless container image signing and attestation using CircleCI OIDC tokens and the Sigstore public infrastructure (Fulcio and Rekor). The orb's GitHub Actions sign the same way with a GitHub Actions workflow's identity; [GitHub Actions](#github-actions) covers what differs there.
 
 ## Overview
 
@@ -608,6 +608,46 @@ workflows:
 ```
 
 > **Note**: For cross-project verification, replace `SIGNING_ORG_ID` and `SIGNING_PROJECT_ID` with the organization and project IDs where the image was originally signed.
+
+## GitHub Actions
+
+Every command has a GitHub Action of the same name (see the README's GitHub Actions section), and keyless signing works the same way, with the workflow's OIDC token in place of CircleCI's.
+
+**Prerequisite:** the job needs the `id-token: write` permission. Pull requests from forks never get a token, so sign on pushes or tags.
+
+| | GitHub Actions |
+| --- | --- |
+| OIDC issuer | `https://token.actions.githubusercontent.com` (`https://<server>/_services/token` on GitHub Enterprise Server) |
+| Certificate identity | The workflow file at the ref it ran from: `https://github.com/<owner>/<repo>/.github/workflows/<file>@<ref>`. A job in a reusable workflow signs as that workflow's file, which can be in another repository. |
+| Auto-detected identity regexp | `^https://github\.com/<owner>/<repo>/\.github/workflows/`: any workflow of the repository the verifying job runs in |
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    steps:
+      # ... build and push ghcr.io/my-org/myimage:${{ github.sha }}
+      - uses: juburr/cosign-orb/actions/install@v1.1.0
+      - uses: juburr/cosign-orb/actions/check_oidc@v1.1.0
+      - uses: juburr/cosign-orb/actions/sign@v1.1.0
+        with:
+          image: ghcr.io/my-org/myimage:${{ github.sha }}
+          keyless: true
+      # Only this workflow file, at this ref.
+      - uses: juburr/cosign-orb/actions/verify@v1.1.0
+        with:
+          image: ghcr.io/my-org/myimage:${{ github.sha }}
+          keyless: true
+          certificate_identity: ${{ github.server_url }}/${{ github.workflow_ref }}
+          certificate_oidc_issuer: https://token.actions.githubusercontent.com
+```
+
+`check_oidc` prints the token's claims and the identity values to verify with. Fulcio also records the repository, its owner, the commit, the event that triggered the run and the run's URL as certificate extensions, and Rekor publishes the certificate. Signing from a private repository therefore publishes its name and those details in the public log.
 
 ## Troubleshooting
 

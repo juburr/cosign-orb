@@ -9,9 +9,10 @@ parameters:
   keyless:
     type: boolean
     description: |
-      Use keyless signing via CircleCI OIDC. When enabled, signs using Fulcio certificates
+      Use keyless signing with the job's OIDC identity. When enabled, signs using Fulcio certificates
       and records signatures in the Rekor transparency log. No private key required.
-      Requires CIRCLE_OIDC_TOKEN to be available (CircleCI Cloud or Server 4.x+).
+      Needs an OIDC token: on CircleCI Cloud or Server 4.x+, or in a GitHub Actions job with the
+      id-token: write permission.
     default: false
   private_key:
     type: env_var_name
@@ -37,7 +38,7 @@ parameters:
     type: string
     description: |
       OIDC issuer URL (for private Fulcio instances only).
-      When using the public Sigstore infrastructure, this is automatically set to CircleCI's issuer.
+      If empty, the job's own issuer is used: its CircleCI organization's, or GitHub Actions'.
     default: ""
   bundle_format:
     type: enum
@@ -64,4 +65,5 @@ steps:
         SCRIPT_IMAGE_REF_LIB: << include(scripts/lib/image_ref.sh) >>
         PARAM_BUNDLE_FORMAT: << parameters.bundle_format >>
         SCRIPT_BUNDLE_FORMAT_LIB: << include(scripts/lib/bundle_format.sh) >>
+        SCRIPT_CI_LIB: << include(scripts/lib/ci.sh) >>
       command: << include(scripts/sign.sh) >>

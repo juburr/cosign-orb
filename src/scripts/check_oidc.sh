@@ -1,10 +1,62 @@
 #!/bin/bash
-# Verifies that CircleCI OIDC token is available and displays key claims.
-# Used to confirm OIDC is properly configured before using keyless signing.
+# Verifies that the job's OIDC token is available and displays key claims:
+# CIRCLE_OIDC_TOKEN in a CircleCI job, or a token from the token service of a
+# GitHub Actions job. Used to confirm OIDC is properly configured before using
+# keyless signing.
 
 set -euo pipefail
 # A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the OIDC token.
 set +o xtrace
+
+# Load the CI helpers (src/scripts/lib/ci.sh).
+if [[ -z "${SCRIPT_CI_LIB:-}" ]]; then
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_CI_LIB is empty." >&2
+    exit 1
+fi
+eval "${SCRIPT_CI_LIB}"
+
+if ci_github; then
+    echo "=== GitHub Actions OIDC Token Check ==="
+    echo ""
+    # The token keyless signing gets: the sigstore audience, which also
+    # checks that the job has the id-token: write permission.
+    TOKEN=$(ci_sigstore_token) || exit 1
+    echo "SUCCESS: An OIDC token with the sigstore audience is available"
+    echo "Token length: ${#TOKEN} characters"
+    echo ""
+    PAYLOAD=$(ci_jwt_claims "${TOKEN}") || PAYLOAD=""
+    if [[ -z "${PAYLOAD}" ]]; then
+        echo "ERROR: Failed to decode JWT payload" >&2
+        exit 1
+    fi
+
+    echo "=== OIDC Token Claims ==="
+    echo "${PAYLOAD}" | jq .
+    echo ""
+
+    echo "=== Key Values for Keyless Signing ==="
+    OIDC_ISSUER=$(echo "${PAYLOAD}" | jq -r '.iss')
+    REPOSITORY=$(echo "${PAYLOAD}" | jq -r '.repository')
+    WORKFLOW_REF=$(echo "${PAYLOAD}" | jq -r '.job_workflow_ref')
+    echo "OIDC Issuer: ${OIDC_ISSUER}"
+    echo "Repository: ${REPOSITORY}"
+    echo "Workflow: ${WORKFLOW_REF}"
+    echo ""
+
+    echo "=== Verification Parameters ==="
+    echo "For keyless verification, use these values:"
+    echo ""
+    echo "  certificate_oidc_issuer: \"${OIDC_ISSUER}\""
+    echo ""
+    echo "  # Option 1: Exact match (this workflow file, at this ref)"
+    echo "  certificate_identity: \"${GITHUB_SERVER_URL:-https://github.com}/${WORKFLOW_REF}\""
+    echo ""
+    echo "  # Option 2: Regexp match (any workflow of this repository, the default in its jobs)"
+    echo "  certificate_identity_regexp: \"$(ci_identity_regexp)\""
+    echo ""
+    echo "=== OIDC is ready for keyless signing ==="
+    exit 0
+fi
 
 echo "=== CircleCI OIDC Token Check ==="
 echo ""
@@ -25,23 +77,9 @@ echo "SUCCESS: CIRCLE_OIDC_TOKEN is available"
 echo "Token length: ${#CIRCLE_OIDC_TOKEN} characters"
 echo ""
 
-# JWT uses base64url encoding - convert to standard base64 and add padding
-decode_jwt_part() {
-    local part="$1"
-    # Replace URL-safe chars with standard base64 chars
-    local b64
-    b64=$(echo "$part" | tr '_-' '/+')
-    # Add padding if needed
-    local pad=$((4 - ${#b64} % 4))
-    if [[ $pad -ne 4 ]]; then
-        b64="${b64}$(printf '=%.0s' $(seq 1 $pad))"
-    fi
-    echo "$b64" | base64 -d 2>/dev/null
-}
-
 # Extract and decode payload. A decoding failure leaves PAYLOAD empty, which
 # the check below reports.
-PAYLOAD=$(decode_jwt_part "$(echo "${CIRCLE_OIDC_TOKEN}" | cut -d. -f2)") || PAYLOAD=""
+PAYLOAD=$(ci_jwt_claims "${CIRCLE_OIDC_TOKEN}") || PAYLOAD=""
 
 if [[ -z "${PAYLOAD}" ]]; then
     echo "ERROR: Failed to decode JWT payload" >&2

@@ -2,28 +2,29 @@
 
 <img src="assets/logos/cosign-orb-512px.png" width="256" alt="Cosign Orb logo: CircleCI and Cosign emblems on a round badge of glowing blue pipes, gears and padlocks">
 
-# Cosign Orb for CircleCI
+# Cosign for CircleCI and GitHub Actions
 
-### Sign, verify and attest your container images in CircleCI, with or without keys to manage.
+### Sign, verify and attest your container images in CircleCI or GitHub Actions, with or without keys to manage.
 
-Install [Sigstore Cosign](https://github.com/sigstore/cosign) and sign your images, OCI artifacts and files with two steps of CircleCI config,<br>
-keyless through CircleCI OIDC or with your own key, on public Sigstore or fully private infrastructure.<br>
+Install [Sigstore Cosign](https://github.com/sigstore/cosign) and sign your images, OCI artifacts and files with two steps of CircleCI config or two GitHub Actions,<br>
+keyless through the job's own OIDC identity or with your own key, on public Sigstore or fully private infrastructure.<br>
 Strict SHA-512 verification by default · No `sudo` · Cosign v1, v2 and v3 · amd64 and arm64
 
 [![CircleCI Build Status](https://circleci.com/gh/juburr/cosign-orb.svg?style=shield "CircleCI Build Status")](https://circleci.com/gh/juburr/cosign-orb)
+[![GitHub Actions Status](https://github.com/juburr/cosign-orb/actions/workflows/actions.yml/badge.svg?branch=main "GitHub Actions Status")](https://github.com/juburr/cosign-orb/actions/workflows/actions.yml)
 [![CircleCI Orb Version](https://badges.circleci.com/orbs/juburr/cosign-orb.svg)](https://circleci.com/developer/orbs/orb/juburr/cosign-orb)
 [![GitHub License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 [![CircleCI Community](https://img.shields.io/badge/community-CircleCI%20Discuss-343434.svg)](https://discuss.circleci.com/c/ecosystem/orbs)
 
 [![Cosign v1, v2 and v3](https://img.shields.io/badge/cosign-v1%20%7C%20v2%20%7C%20v3-22D3EE?style=for-the-badge&labelColor=1E293B)](https://github.com/sigstore/cosign)
-[![Keyless signing via CircleCI OIDC](https://img.shields.io/badge/keyless-CircleCI%20OIDC-3B82F6?style=for-the-badge&labelColor=1E293B&logo=circleci&logoColor=white)](docs/keyless-signing.md)
+[![Keyless signing via CircleCI or GitHub Actions OIDC](https://img.shields.io/badge/keyless-CircleCI%20%7C%20GitHub%20OIDC-3B82F6?style=for-the-badge&labelColor=1E293B)](docs/keyless-signing.md)
 [![SHA-512 verified by default](https://img.shields.io/badge/SHA--512-strict%20by%20default-22D3EE?style=for-the-badge&labelColor=1E293B)](#-checksum-verification)
 [![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-3B82F6?style=for-the-badge&labelColor=1E293B&logo=linux&logoColor=white)](#-supported-platforms)
 [![No telemetry](https://img.shields.io/badge/telemetry-none-22D3EE?style=for-the-badge&labelColor=1E293B)](#-secure-by-design)
 
-**[Quick Start](#-quick-start)** · **[Features](#-why-cosign-orb)** · **[Recipes](#-recipes)** · **[Key Management](#-key-management)** · **[Commands](#-commands)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
+**[Quick Start](#-quick-start)** · **[Features](#-why-cosign-orb)** · **[Recipes](#-recipes)** · **[Key Management](#-key-management)** · **[Commands](#-commands)** · **[GitHub Actions](#-github-actions)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
 
-<sub>An unofficial, community-maintained orb. [Contributions are welcome!](#-contributing)</sub>
+<sub>An unofficial, community-maintained CircleCI orb and set of GitHub Actions. [Contributions are welcome!](#-contributing)</sub>
 
 </div>
 
@@ -37,7 +38,7 @@ steps:
       keyless: true   # No keys to create, store, or rotate
 ```
 
-Two steps, and your image carries a signature tied to the CircleCI project that built it. Prefer your own keys, or can't use the public transparency log? The same commands sign with a private key and keep everything inside your infrastructure.
+Two steps, and your image carries a signature tied to the CircleCI project or GitHub workflow that built it. The [GitHub Actions](#github-actions) take the same inputs. Prefer your own keys, or can't use the public transparency log? The same commands sign with a private key and keep everything inside your infrastructure.
 
 ## ✨ Why cosign-orb?
 
@@ -45,7 +46,7 @@ Two steps, and your image carries a signature tied to the CircleCI project that 
 <tr>
 <td width="33%" valign="top">
 🔏 <b>Keyless, or bring your own key</b><br><br>
-Set <code>keyless: true</code> and the signature is tied to the CircleCI project that built the image, through CircleCI OIDC, with no keys to create, store or rotate. Prefer your own keys? Keep them in a CircleCI context and pass the variable's <i>name</i>.
+Set <code>keyless: true</code> and the signature is tied to the CircleCI project or GitHub workflow that built the image, through the job's OIDC token, with no keys to create, store or rotate. Prefer your own keys? Keep them in a CircleCI context or GitHub Actions secret and pass the variable's <i>name</i>.
 </td>
 <td width="33%" valign="top">
 📦 <b>Images, charts and files</b><br><br>
@@ -80,8 +81,8 @@ Signing in CI lets you prove that an image was built by your pipeline and detect
 | --- | --- | --- |
 | **Installing Cosign** | Download a release, then find and check its checksum yourself | `cosign/install` checks a SHA-512 from a built-in table for amd64 and arm64, fails closed on unknown versions, and caches the binary |
 | **Signing without a public log** | Different flags for each Cosign major: `--no-tlog-upload` (v1), `--tlog-upload=false` (v2), an empty signing config (v3) | Chosen for you from the installed Cosign version |
-| **Keyless signing** | Request a token with `circleci run oidc get`, work out your organization's issuer URL, and pass both to Cosign | `keyless: true` |
-| **Keyless verification** | Build the certificate identity and issuer patterns from your organization and project IDs | Detected automatically when verifying images from the same project |
+| **Keyless signing** | Request a token with `circleci run oidc get` or from GitHub's token service, work out the issuer URL, and pass both to Cosign | `keyless: true` |
+| **Keyless verification** | Build the certificate identity and issuer patterns from your organization and project IDs, or your repository | Detected automatically when verifying images from the same project or repository |
 | **Private key handling** | Decode the key, restrict its permissions, and wipe it afterwards, even when a step fails | Written with `0400` permissions to a private temporary directory, never the working directory, and destroyed with `shred` when the step exits, whether it passed or failed |
 | **Cosign upgrades** | Cosign 3 changed the default signature storage format | `bundle_format` pins the format, and the verify commands enforce it |
 
@@ -109,17 +110,21 @@ flowchart LR
     class fail,stop bad
 ```
 
-`cosign/install` downloads Cosign straight from its official GitHub releases, verifies its SHA-512 checksum in the default `strict` mode shown here, and puts it on `PATH`. See [Checksum Verification](#-checksum-verification) for the other modes. `cosign/sign` resolves a tag to the digest the registry serves and signs that digest, with your private key or, with `keyless: true`, a short-lived certificate tied to your CircleCI project. `cosign/attest` attaches SBOMs, provenance or scan results the same way. Later, `cosign/verify` and `cosign/verify_attestation` fail the step, and stop the pipeline before deploy, when an image was modified after signing or has no matching signature.
+`cosign/install` downloads Cosign straight from its official GitHub releases, verifies its SHA-512 checksum in the default `strict` mode shown here, and puts it on `PATH`. See [Checksum Verification](#-checksum-verification) for the other modes. `cosign/sign` resolves a tag to the digest the registry serves and signs that digest, with your private key or, with `keyless: true`, a short-lived certificate tied to your CircleCI project or GitHub workflow. `cosign/attest` attaches SBOMs, provenance or scan results the same way. Later, `cosign/verify` and `cosign/verify_attestation` fail the step, and stop the pipeline before deploy, when an image was modified after signing or has no matching signature.
 
 ## 🚀 Quick Start
 
-Keyless signing is the recommended setup: sign container images without managing keys, using CircleCI's OIDC identity. Copy this into `.circleci/config.yml`:
+Keyless signing is the recommended setup: sign container images without managing keys, using the job's own OIDC identity.
+
+### CircleCI
+
+Copy this into `.circleci/config.yml`:
 
 ```yaml
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
 
 jobs:
   build-and-sign-keyless:
@@ -151,18 +156,59 @@ workflows:
 
 Swap in your registry and image, push, and the signature lands in your registry next to the image, recorded in the public Sigstore transparency log. `verify` works out the expected identity and issuer from the job's project and organization IDs, so verifying in the same project needs no extra parameters. Signing with your own key instead? See [Sign with a Private Key](#sign-with-a-private-key). The [Keyless Signing Guide](docs/keyless-signing.md) covers the details.
 
+### GitHub Actions
+
+```yaml
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write   # Lets the job request the OIDC token keyless signing uses
+
+jobs:
+  build-and-sign-keyless:
+    runs-on: ubuntu-24.04
+    env:
+      IMAGE: ghcr.io/my-org/myimage:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and push the image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "${REGISTRY_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker build -t "${IMAGE}" .
+          docker push "${IMAGE}"
+      - uses: juburr/cosign-orb/actions/install@v1.1.0
+      - uses: juburr/cosign-orb/actions/sign@v1.1.0
+        with:
+          image: ${{ env.IMAGE }}
+          keyless: true
+      - uses: juburr/cosign-orb/actions/verify@v1.1.0
+        with:
+          image: ${{ env.IMAGE }}
+          keyless: true
+```
+
+The certificate names the workflow file and the ref it ran from, and `verify` accepts any workflow of the same repository unless you pass an identity. `docker login` also gives Cosign the registry credentials it needs to store the signature. See [GitHub Actions](#-github-actions) for how the actions map to the orb's commands.
+
 > [!TIP]
-> **Prerequisites for keyless signing:** CircleCI Cloud or CircleCI Server 4.x+, with OIDC enabled for your organization. Run `cosign/check_oidc` to confirm a token is available.
+> **Prerequisites for keyless signing:** CircleCI Cloud or CircleCI Server 4.x+, with OIDC enabled for your organization, or a GitHub Actions job with the `id-token: write` permission. Run `check_oidc` to confirm a token is available.
 
 > [!NOTE]
-> **Privacy note:** Keyless signatures are recorded in the public Rekor transparency log, which includes your CircleCI organization and project IDs. To keep signatures off the public log, sign with a private key instead.
+> **Privacy note:** Keyless signatures are recorded in the public Rekor transparency log, which includes your CircleCI organization and project IDs, or your GitHub repository, workflow and ref. To keep signatures off the public log, sign with a private key instead.
 
 > [!TIP]
 > Upgrading from `sign_image`, `verify_image` or the old `generate_key_pair` parameters? See [the renames](#v100-renamed-commands-and-parameters) under Upgrading.
 
 ## 🍳 Recipes
 
-Copy-paste snippets for common tasks. Each one assumes the orb is imported as `cosign`, as in the [Quick Start](#-quick-start).
+Copy-paste snippets for common tasks. Each one assumes the orb is imported as `cosign`, as in the [Quick Start](#-quick-start). On GitHub Actions, the same parameters are inputs of the [action](#-github-actions) of the same name.
 
 | 🖼️ Images | 📄 Blobs | 📜 Attestations | 🔑 Keys and Setup |
 | --- | --- | --- | --- |
@@ -176,7 +222,7 @@ Sign images using a private key stored in a CircleCI context. See [Key Managemen
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
 
 jobs:
   build-and-sign:
@@ -458,7 +504,7 @@ Install Cosign and use it with custom commands:
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
 
 jobs:
   example:
@@ -505,6 +551,24 @@ cosign generate-key-pair
 
 3. Give the jobs that sign or verify that context, as in [Sign with a Private Key](#sign-with-a-private-key). Stored under other names? Pass those names to `private_key`, `password` and `public_key`.
 
+### Storing Keys in GitHub Actions
+
+Add the same three values as repository or environment secrets, and set them in the `env` of the steps that use them:
+
+```yaml
+- uses: juburr/cosign-orb/actions/sign@v1.1.0
+  env:
+    COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+    COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+  with:
+    image: ghcr.io/my-org/myimage:${{ github.sha }}
+- uses: juburr/cosign-orb/actions/verify@v1.1.0
+  env:
+    COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+  with:
+    image: ghcr.io/my-org/myimage:${{ github.sha }}
+```
+
 ### Version Compatibility Note
 
 > [!WARNING]
@@ -529,7 +593,7 @@ Elsewhere: [Cosign Documentation](https://docs.sigstore.dev/cosign/overview/) ·
 | Command | What it does |
 | --- | --- |
 | [`install`](#cosigninstall) | Download and install Cosign with checksum verification |
-| [`check_oidc`](#cosigncheck_oidc) | Confirm a CircleCI OIDC token is available for keyless signing |
+| [`check_oidc`](#cosigncheck_oidc) | Confirm the job's OIDC token is available for keyless signing |
 | [`sign`](#cosignsign) | Sign a container image or other OCI artifact, with a private key or keyless |
 | [`verify`](#cosignverify) | Verify a container image signature |
 | [`attest`](#cosignattest) | Attach an attestation (SBOM, provenance, scan results) to an image |
@@ -551,36 +615,36 @@ Installs Cosign for Linux on amd64 or arm64, matching the executor's CPU. In the
 
 ### `cosign/check_oidc`
 
-Confirms that the job has a CircleCI OIDC token (`CIRCLE_OIDC_TOKEN`) and prints its key claims: the issuer, organization, project and pipeline definition IDs, and the `certificate_oidc_issuer` and `certificate_identity_regexp` values to verify this project's signatures with. Fails the step if the job can't get a token. Run it before the keyless commands. It takes no parameters.
+Confirms that the job has an OIDC token and prints its key claims, with the `certificate_oidc_issuer` and `certificate_identity_regexp` values to verify the job's signatures with. On CircleCI the token is `CIRCLE_OIDC_TOKEN`, and the claims are the issuer, organization, project and pipeline definition IDs. On GitHub Actions it is a token with the `sigstore` audience from the job's token service, which needs the `id-token: write` permission, and the claims include the repository and workflow; it also prints the exact `certificate_identity` of the workflow it runs in. Fails the step if the job can't get a token. Run it before the keyless commands. It takes no parameters.
 
 ### `cosign/sign`
 
-Signs a container image or other OCI artifact, Helm charts included. A tag is resolved to a digest first and the digest the registry serves is signed (see [Sign by Digest](#sign-by-digest-images-helm-charts-and-other-oci-artifacts)), which needs `crane` or `docker` on the executor. With a private key, nothing is uploaded to the transparency log. With `keyless: true`, the step requests a CircleCI OIDC token, gets a short-lived certificate from Fulcio and records the signature in Rekor.
+Signs a container image or other OCI artifact, Helm charts included. A tag is resolved to a digest first and the digest the registry serves is signed (see [Sign by Digest](#sign-by-digest-images-helm-charts-and-other-oci-artifacts)), which needs `crane` or `docker` on the executor. With a private key, nothing is uploaded to the transparency log. With `keyless: true`, the step requests the job's OIDC token, gets a short-lived certificate from Fulcio and records the signature in Rekor.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `image` | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`). |
-| `keyless` | `false` | Boolean. Sign through CircleCI OIDC instead of with a private key. Needs CircleCI Cloud or Server 4.x+ with OIDC enabled. |
+| `keyless` | `false` | Boolean. Sign with the job's OIDC identity instead of a private key. Needs CircleCI Cloud or Server 4.x+ with OIDC enabled, or a GitHub Actions job with `id-token: write`. |
 | `private_key` | `COSIGN_PRIVATE_KEY` | *Name* of the environment variable that holds the base64-encoded private key. Ignored when `keyless` is true. |
 | `password` | `COSIGN_PASSWORD` | *Name* of the environment variable that holds the private key's password. Ignored when `keyless` is true. |
 | `annotations` | *(empty)* | Comma-separated `key=value` pairs to add to the signature, e.g. `"env=prod,team=platform"`. |
 | `bundle_format` | `auto` | Signature storage format: `auto`, `bundle` or `legacy`. Keyless signing supports only `auto` and the installed Cosign major's own default. See [Pin the Signature Storage Format](#pin-the-signature-storage-format). |
 | `fulcio_url` | `https://fulcio.sigstore.dev` | Fulcio CA URL. Keyless only. |
 | `rekor_url` | `https://rekor.sigstore.dev` | Rekor transparency log URL. Keyless only. |
-| `oidc_issuer` | *(empty)* | OIDC issuer URL, for private Fulcio instances. Empty means CircleCI's issuer for your organization, `https://oidc.circleci.com/org/<org-id>`, from `CIRCLE_ORGANIZATION_ID`. Keyless only. |
+| `oidc_issuer` | *(empty)* | OIDC issuer URL, for private Fulcio instances. Empty means the job's issuer: on CircleCI your organization's, `https://oidc.circleci.com/org/<org-id>`, from `CIRCLE_ORGANIZATION_ID`; on GitHub Actions `https://token.actions.githubusercontent.com`. Keyless only. |
 
 ### `cosign/verify`
 
-Verifies a container image signature with a public key or, with `keyless: true`, against the signing certificate's identity and OIDC issuer. When the identity and issuer parameters are empty, they are derived from `CIRCLE_PROJECT_ID` and `CIRCLE_ORGANIZATION_ID`, so verifying an image signed by the same project needs neither. Passes only when an image signature verified; an image that was only attested fails (see [Verify an Image Signature](#verify-an-image-signature)).
+Verifies a container image signature with a public key or, with `keyless: true`, against the signing certificate's identity and OIDC issuer. When the identity and issuer parameters are empty, they are derived from the job: from `CIRCLE_PROJECT_ID` and `CIRCLE_ORGANIZATION_ID` on CircleCI, and from the repository on GitHub Actions, so verifying an image signed by the same project or repository needs neither. Passes only when an image signature verified; an image that was only attested fails (see [Verify an Image Signature](#verify-an-image-signature)).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `image` | *required* | Full image reference, e.g. `registry.com/image:tag`. |
 | `keyless` | `false` | Boolean. Verify against a certificate identity and OIDC issuer instead of a public key. |
 | `public_key` | `COSIGN_PUBLIC_KEY` | *Name* of the environment variable that holds the base64-encoded public key. Ignored when `keyless` is true. |
-| `certificate_identity` | *(empty)* | Exact identity expected in the Fulcio certificate, e.g. `https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/<pipeline-def-id>`. Keyless only. |
-| `certificate_identity_regexp` | *(empty)* | Regular expression for the certificate identity. Keyless only. When both identity parameters are empty, it is `https://circleci.com/api/v2/projects/<CIRCLE_PROJECT_ID>/pipeline-definitions/.*`. Cosign 1 doesn't support it and skips the identity check with a warning. |
-| `certificate_oidc_issuer` | *(empty)* | Exact OIDC issuer expected in the certificate. Keyless only. When both issuer parameters are empty, it is `https://oidc.circleci.com/org/<CIRCLE_ORGANIZATION_ID>`. |
+| `certificate_identity` | *(empty)* | Exact identity expected in the Fulcio certificate, e.g. `https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/<pipeline-def-id>`, or on GitHub Actions `https://github.com/<owner>/<repo>/.github/workflows/<file>@<ref>`. Keyless only. |
+| `certificate_identity_regexp` | *(empty)* | Regular expression for the certificate identity. Keyless only. When both identity parameters are empty, it is `https://circleci.com/api/v2/projects/<CIRCLE_PROJECT_ID>/pipeline-definitions/.*` on CircleCI, and `^https://github\.com/<owner>/<repo>/\.github/workflows/` (any workflow of the repository) on GitHub Actions. Cosign 1 doesn't support it and skips the identity check with a warning. |
+| `certificate_oidc_issuer` | *(empty)* | Exact OIDC issuer expected in the certificate. Keyless only. When both issuer parameters are empty, it is `https://oidc.circleci.com/org/<CIRCLE_ORGANIZATION_ID>` on CircleCI, and `https://token.actions.githubusercontent.com` on GitHub Actions. |
 | `certificate_oidc_issuer_regexp` | *(empty)* | Regular expression for the OIDC issuer, e.g. `https://oidc.circleci.com/org/.*`. Keyless only. Cosign 1 doesn't support it. |
 | `bundle_format` | `auto` | Signature format that must satisfy verification: `auto`, `bundle` or `legacy`. See [Pin the Signature Storage Format](#pin-the-signature-storage-format). |
 
@@ -593,17 +657,17 @@ Attaches an attestation, such as an SBOM, SLSA provenance or a vulnerability rep
 | `image` | *required* | Image or OCI artifact by tag (`registry.com/image:tag`) or digest (`registry.com/image@sha256:...`). |
 | `predicate` | *required* | Path to the predicate file. |
 | `predicate_type` | *required* | Predicate type, e.g. `spdx`, `spdxjson`, `cyclonedx`, `vuln` or `slsaprovenance`. |
-| `keyless` | `false` | Boolean. Attest through CircleCI OIDC instead of with a private key. Needs CircleCI Cloud or Server 4.x+ with OIDC enabled. |
+| `keyless` | `false` | Boolean. Attest with the job's OIDC identity instead of a private key. Needs CircleCI Cloud or Server 4.x+ with OIDC enabled, or a GitHub Actions job with `id-token: write`. |
 | `private_key` | `COSIGN_PRIVATE_KEY` | *Name* of the environment variable that holds the base64-encoded private key. Ignored when `keyless` is true. |
 | `password` | `COSIGN_PASSWORD` | *Name* of the environment variable that holds the private key's password. Ignored when `keyless` is true. |
 | `bundle_format` | `auto` | Attestation storage format: `auto`, `bundle` or `legacy`. Keyless attestation supports only `auto` and the installed Cosign major's own default. |
 | `fulcio_url` | `https://fulcio.sigstore.dev` | Fulcio CA URL. Keyless only. |
 | `rekor_url` | `https://rekor.sigstore.dev` | Rekor transparency log URL. Keyless only. |
-| `oidc_issuer` | *(empty)* | OIDC issuer URL, for private Fulcio instances. Empty means `https://oidc.circleci.com/org/<org-id>`, from `CIRCLE_ORGANIZATION_ID`. Keyless only. |
+| `oidc_issuer` | *(empty)* | OIDC issuer URL, for private Fulcio instances. Empty means the job's issuer, as for `sign`. Keyless only. |
 
 ### `cosign/verify_attestation`
 
-Verifies an attestation attached to an image, with a public key or keyless. Identity and issuer are derived from the job's project and organization IDs when left empty, as for `verify`.
+Verifies an attestation attached to an image, with a public key or keyless. Identity and issuer are derived from the job when left empty, as for `verify`.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
@@ -612,8 +676,8 @@ Verifies an attestation attached to an image, with a public key or keyless. Iden
 | `keyless` | `false` | Boolean. Verify against a certificate identity and OIDC issuer instead of a public key. |
 | `public_key` | `COSIGN_PUBLIC_KEY` | *Name* of the environment variable that holds the base64-encoded public key. Ignored when `keyless` is true. |
 | `certificate_identity` | *(empty)* | Exact identity expected in the Fulcio certificate. Keyless only. |
-| `certificate_identity_regexp` | *(empty)* | Regular expression for the certificate identity. Keyless only. Derived from `CIRCLE_PROJECT_ID` when both identity parameters are empty. Cosign 1 skips the identity check with a warning. |
-| `certificate_oidc_issuer` | *(empty)* | Exact OIDC issuer expected in the certificate. Keyless only. Derived from `CIRCLE_ORGANIZATION_ID` when both issuer parameters are empty. |
+| `certificate_identity_regexp` | *(empty)* | Regular expression for the certificate identity. Keyless only. Derived from the job, as for `verify`, when both identity parameters are empty. Cosign 1 skips the identity check with a warning. |
+| `certificate_oidc_issuer` | *(empty)* | Exact OIDC issuer expected in the certificate. Keyless only. Derived from the job, as for `verify`, when both issuer parameters are empty. |
 | `certificate_oidc_issuer_regexp` | *(empty)* | Regular expression for the OIDC issuer. Keyless only. Cosign 1 doesn't support it. |
 | `bundle_format` | `auto` | Attestation format that must satisfy verification: `auto`, `bundle` or `legacy`. |
 
@@ -625,17 +689,17 @@ Signs an arbitrary file with a private key or keyless. A private-key signature i
 | --- | --- | --- |
 | `blob` | *required* | Path to the file to sign. |
 | `output_signature` | *(empty)* | Path of the file to write the signature to. Empty prints it to the step's output. |
-| `keyless` | `false` | Boolean. Sign through CircleCI OIDC instead of with a private key. |
+| `keyless` | `false` | Boolean. Sign with the job's OIDC identity instead of a private key. |
 | `output_certificate` | *(empty)* | Path of the file to write the Fulcio certificate to. Keyless only, and required when `keyless` is true; `verify_blob` needs it. |
 | `private_key` | `COSIGN_PRIVATE_KEY` | *Name* of the environment variable that holds the base64-encoded private key. Ignored when `keyless` is true. |
 | `password` | `COSIGN_PASSWORD` | *Name* of the environment variable that holds the private key's password. Ignored when `keyless` is true. |
 | `fulcio_url` | `https://fulcio.sigstore.dev` | Fulcio CA URL. Keyless only. |
 | `rekor_url` | `https://rekor.sigstore.dev` | Rekor transparency log URL. Keyless only. |
-| `oidc_issuer` | *(empty)* | OIDC issuer URL, for private Fulcio instances. Empty means `https://oidc.circleci.com/org/<org-id>`, from `CIRCLE_ORGANIZATION_ID`. Keyless only. |
+| `oidc_issuer` | *(empty)* | OIDC issuer URL, for private Fulcio instances. Empty means the job's issuer, as for `sign`. Keyless only. |
 
 ### `cosign/verify_blob`
 
-Verifies a file's signature with a public key or, with `keyless: true`, with the certificate `sign_blob` wrote. Identity and issuer are derived from the job's project and organization IDs when left empty, as for `verify`.
+Verifies a file's signature with a public key or, with `keyless: true`, with the certificate `sign_blob` wrote. Identity and issuer are derived from the job when left empty, as for `verify`.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
@@ -645,13 +709,13 @@ Verifies a file's signature with a public key or, with `keyless: true`, with the
 | `certificate` | *(empty)* | Path to the certificate file, `sign_blob`'s `output_certificate`. Keyless only, and required when `keyless` is true. |
 | `public_key` | `COSIGN_PUBLIC_KEY` | *Name* of the environment variable that holds the base64-encoded public key. Ignored when `keyless` is true. |
 | `certificate_identity` | *(empty)* | Exact identity expected in the Fulcio certificate. Keyless only. |
-| `certificate_identity_regexp` | *(empty)* | Regular expression for the certificate identity. Keyless only. Derived from `CIRCLE_PROJECT_ID` when both identity parameters are empty. Cosign 1 skips the identity check with a warning. |
-| `certificate_oidc_issuer` | *(empty)* | Exact OIDC issuer expected in the certificate. Keyless only. Derived from `CIRCLE_ORGANIZATION_ID` when both issuer parameters are empty. |
+| `certificate_identity_regexp` | *(empty)* | Regular expression for the certificate identity. Keyless only. Derived from the job, as for `verify`, when both identity parameters are empty. Cosign 1 skips the identity check with a warning. |
+| `certificate_oidc_issuer` | *(empty)* | Exact OIDC issuer expected in the certificate. Keyless only. Derived from the job, as for `verify`, when both issuer parameters are empty. |
 | `certificate_oidc_issuer_regexp` | *(empty)* | Regular expression for the OIDC issuer. Keyless only. Cosign 1 doesn't support it. |
 
 ### `cosign/generate_key_pair`
 
-Generates a throwaway Cosign key pair for development and testing, and exports the base64-encoded keys and the password to later steps through `$BASH_ENV`. The key files themselves are generated in a private temporary directory and destroyed with `shred` when the step ends. For production, keep keys in a key management system or a CircleCI context instead.
+Generates a throwaway Cosign key pair for development and testing, and exports the base64-encoded keys and the password to later steps through `$BASH_ENV`. The key files themselves are generated in a private temporary directory and destroyed with `shred` when the step ends. The GitHub Action masks the password and private key in the job's log before passing them on. For production, keep keys in a key management system, a CircleCI context or GitHub Actions secrets instead.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
@@ -659,7 +723,37 @@ Generates a throwaway Cosign key pair for development and testing, and exports t
 | `public_key_env_var` | `COSIGN_PUBLIC_KEY` | *Name* of the environment variable to write the base64-encoded public key to. |
 | `password_env_var` | `COSIGN_PASSWORD` | *Name* of the environment variable that holds the private key's password. Its value is used when set and not empty; otherwise a random password is generated. Either way the password is written to this variable. |
 
-Environment variables are expanded in `install`'s `version` and `install_path`; in `image` on every image command; in `sign`'s `annotations`; in `attest`'s `predicate` and `predicate_type`, and `verify_attestation`'s `predicate_type`; in `sign_blob`'s `blob`, `output_signature` and `output_certificate`; in `verify_blob`'s `blob`, `signature` and `certificate`; and in the four `certificate_*` parameters of the verify commands. `fulcio_url`, `rekor_url` and `oidc_issuer` are used as given.
+Environment variables are expanded in `install`'s `version` and `install_path`; in `image` on every image command; in `sign`'s `annotations`; in `attest`'s `predicate` and `predicate_type`, and `verify_attestation`'s `predicate_type`; in `sign_blob`'s `blob`, `output_signature` and `output_certificate`; in `verify_blob`'s `blob`, `signature` and `certificate`; and in the four `certificate_*` parameters of the verify commands. `fulcio_url`, `rekor_url` and `oidc_issuer` are used as given. The GitHub Actions expand nothing; use expressions such as `${{ env.IMAGE }}` instead.
+
+## ⚡ GitHub Actions
+
+Each of the orb's commands has a GitHub Action of the same name. The actions run the same scripts as the orb, so they do the same things the same way, and take the same inputs with the same defaults.
+
+| Action | Orb command |
+| --- | --- |
+| `juburr/cosign-orb/actions/install@v1.1.0` | [`cosign/install`](#cosigninstall) |
+| `juburr/cosign-orb/actions/check_oidc@v1.1.0` | [`cosign/check_oidc`](#cosigncheck_oidc) |
+| `juburr/cosign-orb/actions/sign@v1.1.0` | [`cosign/sign`](#cosignsign) |
+| `juburr/cosign-orb/actions/verify@v1.1.0` | [`cosign/verify`](#cosignverify) |
+| `juburr/cosign-orb/actions/attest@v1.1.0` | [`cosign/attest`](#cosignattest) |
+| `juburr/cosign-orb/actions/verify_attestation@v1.1.0` | [`cosign/verify_attestation`](#cosignverify_attestation) |
+| `juburr/cosign-orb/actions/sign_blob@v1.1.0` | [`cosign/sign_blob`](#cosignsign_blob) |
+| `juburr/cosign-orb/actions/verify_blob@v1.1.0` | [`cosign/verify_blob`](#cosignverify_blob) |
+| `juburr/cosign-orb/actions/generate_key_pair@v1.1.0` | [`cosign/generate_key_pair`](#cosigngenerate_key_pair) |
+
+How they differ from the orb's commands:
+
+- **Versions.** An action is referenced by the repository's release tag, such as `v1.1.0`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/cosign-orb/actions/sign@<sha> # v1.1.0`.
+- **Inputs are strings.** Write booleans quoted or not (`keyless: true` reaches the script as `true`); the scripts check every boolean themselves.
+- **Keys and passwords.** `private_key`, `password` and `public_key` name environment variables, as in the orb. Set them in the `env` of the step that uses the action, from secrets, as in [Storing Keys in GitHub Actions](#storing-keys-in-github-actions), or let `generate_key_pair` set them for later steps.
+- **Keyless signing.** The job needs `permissions: id-token: write`. The certificate's issuer is `https://token.actions.githubusercontent.com` (`<server>/_services/token` on GitHub Enterprise Server), and its identity is the workflow file at the ref it ran from, such as `https://github.com/my-org/myrepo/.github/workflows/release.yml@refs/heads/main`. A job in a reusable workflow signs as that workflow's file, which can be in another repository. Pull requests from forks get no token, so sign on pushes or tags.
+- **Keyless verification.** With no identity, `verify`, `verify_attestation` and `verify_blob` accept any workflow of the repository the job runs in. To accept only one workflow or ref, pass `certificate_identity` (for this workflow, `${{ github.server_url }}/${{ github.workflow_ref }}`) or a `certificate_identity_regexp` such as `^https://github\.com/my-org/myrepo/\.github/workflows/release\.yml@refs/tags/`. To verify another repository's signatures, pass its identity and the issuer.
+- **Environment variables.** The orb expands `$NAME` in its parameters with the CircleCI CLI, which GitHub's runners don't have, so the actions take values as they are. Use GitHub's expressions instead, such as `image: ghcr.io/my-org/myimage:${{ github.sha }}`.
+- **Caching.** `caching` stores the verified release with [`actions/cache`](https://github.com/actions/cache), with the same key ingredients as the orb. The cache is restored before the install and saved right after it, and what it restores is verified again. It counts toward the repository's GitHub Actions cache storage.
+- **Exports.** What a command exports to later steps (the install path on the `PATH`, and the keys and password from `generate_key_pair`) is passed on through `GITHUB_PATH` and `GITHUB_ENV`. `generate_key_pair` first masks the password and private key, so the job's log shows `***` in their place.
+- **Runners.** CI installs Cosign on GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners, once from the cache with the download hosts blocked, signs, verifies and attests with a generated key pair against a local registry under Cosign 1.13.6, 2.6.5 and the default version, and signs keyless with its own workflow identity under the same three, as on CircleCI.
+
+The actions are composite actions in [`actions/`](actions), next to the orb's source. Each passes its inputs to the orb's script as environment variables, never pasting them into a script, and [`actions/run_script.sh`](actions/run_script.sh) gives the script what CircleCI would: a `BASH_ENV` file for the values it hands to later steps, which it then passes on through `GITHUB_PATH` and `GITHUB_ENV`.
 
 ## 📦 Upgrading
 
@@ -707,8 +801,8 @@ Pipelines that use the orb's default Cosign version, or any version in the check
 - **Least Privilege**: Installs to a user-owned directory (`$HOME/bin` by default), with no `sudo` usage anywhere in this orb.
 - **Integrity**: SHA-512 checksum validation of downloaded binaries, on by default and failing closed: a Cosign version this orb has no checksum for is refused, not installed unverified, and a binary that can't run on the executor never replaces an existing install. See [Checksum Verification](#-checksum-verification) for the `known_versions` and `false` opt-outs. `sign` and `attest` only sign a digest the registry confirmed it serves.
 - **Provenance**: Installs directly from Cosign's official [releases page](https://github.com/sigstore/cosign/releases) on GitHub. No third-party websites, domains, or proxies are used. Every checksum in the orb's table was added only after the binary's keyless Sigstore signature verified against the Cosign release identity.
-- **Confidentiality**: Keys and passwords are passed by environment variable *name*, never as literal parameter values. A key is decoded into a private temporary directory created under `umask 077`, never the working directory, set to `0400`, and destroyed with `shred` when the step exits, whether it passed or failed. Scripts that handle a private key, password or token turn off xtrace, and `generate_key_pair` writes shell-quoted exports to `$BASH_ENV`, wrapped so that a job tracing its steps doesn't print them. Secrets stay off command lines, with one exception: Cosign 1 keyless signing (`sign`, `attest`, `sign_blob`) passes the OIDC token as `--identity-token`, which other processes on the executor can see. Cosign 2 and 3 read it from the environment instead. All of this follows CircleCI's [security recommendations](https://circleci.com/docs/security-recommendations/) and [best practices](https://circleci.com/docs/orbs-best-practices/).
-- **Privacy**: No usage data of any kind is collected or shipped back to the orb developer. Keyless signing is a separate matter: its signatures are recorded in the public Rekor transparency log, including your CircleCI organization and project IDs. Sign with a private key to keep them off the public log.
+- **Confidentiality**: Keys and passwords are passed by environment variable *name*, never as literal parameter values. A key is decoded into a private temporary directory created under `umask 077`, never the working directory, set to `0400`, and destroyed with `shred` when the step exits, whether it passed or failed. Scripts that handle a private key, password or token turn off xtrace, and `generate_key_pair` writes shell-quoted exports to `$BASH_ENV`, wrapped so that a job tracing its steps doesn't print them; on GitHub Actions it also masks the password and private key in the log. Secrets stay off command lines, with one exception: Cosign 1 keyless signing (`sign`, `attest`, `sign_blob`) passes the OIDC token as `--identity-token`, which other processes on the executor can see. Cosign 2 and 3 read it from the environment instead. On GitHub Actions, the request for the token passes the job's request token to `curl` as a header on stdin. All of this follows CircleCI's [security recommendations](https://circleci.com/docs/security-recommendations/) and [best practices](https://circleci.com/docs/orbs-best-practices/).
+- **Privacy**: No usage data of any kind is collected or shipped back to the orb developer. Keyless signing is a separate matter: its signatures are recorded in the public Rekor transparency log, including your CircleCI organization and project IDs, or your GitHub repository, workflow and ref. Sign with a private key to keep them off the public log.
 
 > [!IMPORTANT]
 > **Info for security teams:** see [Network Access](#-network-access) for the hosts to allow on locked-down or self-hosted runners, and [Private Sigstore Deployments](#private-sigstore-deployments) for signing and verifying against your own Sigstore services.
@@ -719,9 +813,9 @@ Linux executors on `x86_64` (amd64) and `aarch64`/`arm64` (arm64), including Cir
 
 The download cache is keyed by Cosign version, executor architecture and home directory, so amd64 and arm64 jobs never share a cached binary. On executors whose `PATH` doesn't already include `install_path` (for example, machine executors), `install` adds it for later steps through `BASH_ENV`.
 
-`install` needs bash 4 or newer, `curl` or `wget`, `awk`, and the standard coreutils, including `mktemp` and, when it verifies, `sha512sum`. The signing and verification commands need `jq` and the CircleCI CLI (`circleci`), which they use to expand environment variables in parameters and, for keyless signing, to request the OIDC token. `check_oidc` needs `jq` too. `sign` and `attest` also need `crane` or `docker` to read the image digest, and `generate_key_pair` uses `openssl` when it generates a password. The orb's CI runs every command on CircleCI's `cimg/base` image, with `setup_remote_docker` for the image commands. Keyless signing needs CircleCI Cloud or CircleCI Server 4.x+ with OIDC enabled.
+`install` needs bash 4 or newer, `curl` or `wget`, `awk`, and the standard coreutils, including `mktemp` and, when it verifies, `sha512sum`. The signing and verification commands need `jq`, and on CircleCI the CircleCI CLI (`circleci`), which they use to expand environment variables in parameters and, for keyless signing, to request the OIDC token. On GitHub Actions, keyless signing requests the token from the job's token service with `curl`. `check_oidc` needs `jq` too. `sign` and `attest` also need `crane` or `docker` to read the image digest, and `generate_key_pair` uses `openssl` when it generates a password. The orb's CI runs every command on CircleCI's `cimg/base` image, with `setup_remote_docker` for the image commands. Keyless signing needs CircleCI Cloud or CircleCI Server 4.x+ with OIDC enabled, or a GitHub Actions job with `id-token: write`.
 
-Every release of the orb is tested on amd64 by signing and verifying with Cosign 1.13.6, 2.5.3, 2.6.5 and 3.1.3, plus an install of 3.0.3. On arm64, CI installs Cosign 3.1.3 and 2.6.5 and signs and verifies a file with 3.1.3.
+Every release of the orb is tested on amd64 by signing and verifying with Cosign 1.13.6, 2.5.3, 2.6.5 and 3.1.3, plus an install of 3.0.3. On arm64, CI installs Cosign 3.1.3 and 2.6.5 and signs and verifies a file with 3.1.3. The GitHub Actions are tested the same way on GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners (see [GitHub Actions](#-github-actions)).
 
 ## 🔐 Checksum Verification
 
@@ -740,17 +834,17 @@ The table covers Cosign 1.0.0 through 3.1.3 on amd64 and 1.9.0 through 3.1.3 on 
 
 ## 🌐 Network Access
 
-Hosts to allow (HTTPS, port 443) when running on a locked-down or self-hosted runner. This list covers what the orb's commands need. It assumes the runner can already reach CircleCI to receive jobs (for CircleCI Cloud, see the [runner FAQ](https://circleci.com/docs/guides/execution-runner/runner-faqs/#what-connectivity-is-required)).
+Hosts to allow (HTTPS, port 443) when running on a locked-down or self-hosted runner. This list covers what the orb's commands need. It assumes the runner can already reach CircleCI or GitHub to receive jobs (for CircleCI Cloud, see the [runner FAQ](https://circleci.com/docs/guides/execution-runner/runner-faqs/#what-connectivity-is-required); for GitHub, its [self-hosted runner communication](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#requirements-for-communication-with-github)).
 
 | When the job uses | Allow |
 | --- | --- |
-| `install` | `github.com`, `release-assets.githubusercontent.com`, `objects.githubusercontent.com`, and CircleCI's cache storage (or set `caching: false`) |
+| `install` | `github.com`, `release-assets.githubusercontent.com`, `objects.githubusercontent.com`, and CircleCI's or GitHub's cache storage (or set `caching: false`) |
 | Any image command | Every registry you sign or verify in, plus the authentication and storage hosts it redirects to |
 | A private key | Nothing extra in most cases. `sign_blob` and `verify_blob` need no network access at all. See [the exceptions](#private-keys). |
 | Keyless signing | `fulcio.sigstore.dev`, `rekor.sigstore.dev` (or your `fulcio_url` and `rekor_url`), and `tuf-repo-cdn.sigstore.dev` |
 | Keyless verification | `tuf-repo-cdn.sigstore.dev`, plus `rekor.sigstore.dev` for `verify_blob` |
 
-The job never connects to `oidc.circleci.com`. Private Sigstore deployments replace `tuf-repo-cdn.sigstore.dev` with their own TUF mirror.
+The job never connects to `oidc.circleci.com` or `token.actions.githubusercontent.com`. On GitHub Actions, keyless commands get the token from the job's token service, at the URL the runner gives the job in `ACTIONS_ID_TOKEN_REQUEST_URL`. Private Sigstore deployments replace `tuf-repo-cdn.sigstore.dev` with their own TUF mirror.
 
 | Host | Needed by | Purpose |
 | --- | --- | --- |
@@ -758,6 +852,7 @@ The job never connects to `oidc.circleci.com`. Private Sigstore deployments repl
 | `release-assets.githubusercontent.com` | `install` | Where GitHub redirects release downloads |
 | `objects.githubusercontent.com` | `install` | GitHub's earlier redirect target for release downloads. Allow it as well, because GitHub has used both. |
 | CircleCI's cache storage | `install` with `caching: true` (the default) | `restore_cache` and `save_cache`. On CircleCI Cloud, the runner FAQ lists `circleci-tasks-prod.s3.us-east-1.amazonaws.com` for this. On CircleCI Server, it is the object storage your installation is configured with. Allow it, or set `caching: false`. |
+| GitHub's cache storage | The `install` action with `caching: true`, through `actions/cache`, on self-hosted GitHub runners | The verified release (see GitHub's [self-hosted runner communication](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#requirements-for-communication-with-github)). Set `caching: false` to avoid it. |
 | Your container registries | `sign`, `attest`, `verify`, `verify_attestation` | Every registry you sign or verify images in, including the hosts it sends clients to (see below) |
 | `fulcio.sigstore.dev`, or your `fulcio_url` | Keyless `sign`, `attest`, `sign_blob` | Short-lived signing certificates |
 | `rekor.sigstore.dev`, or your `rekor_url` | Keyless `sign`, `attest`, `sign_blob`; keyless `verify_blob` | Transparency log uploads; `verify_blob` looks up the blob's entry |
@@ -783,9 +878,9 @@ Signing and verifying with a private key needs nothing beyond the registries in 
 
 Setting `fulcio_url` and `rekor_url` is not enough on its own. Cosign must also trust that deployment's Fulcio, Rekor and certificate transparency log keys, for signing as well as verification. Initialize Cosign from the deployment's TUF mirror before signing or verifying (for example `cosign initialize --mirror <url> --root <root.json>`), and allow that mirror instead of `tuf-repo-cdn.sigstore.dev`. `<root.json>` is the trust anchor for everything the mirror serves, so provision it through a trusted channel, such as a file in your repository or runner image, rather than fetching it from the mirror it is meant to authenticate. If you pass a URL instead, also pass `--root-checksum` (Cosign 2.4.2 and later). Without it, Cosign trusts whatever that URL serves and only prints a deprecation warning. See [Sigstore's custom components guide](https://docs.sigstore.dev/cosign/system_config/custom_components/).
 
-### CircleCI's OIDC Issuer
+### The OIDC Issuer
 
-`oidc.circleci.com`, or your `oidc_issuer` (for example on CircleCI Server), is the token issuer the keyless scripts name, but the job never connects to it. The orb gets its token from the CircleCI job (`circleci run oidc get`) and hands it to Cosign, so Cosign skips its OIDC login flow. Fulcio, not the runner, reads the issuer's discovery document and signing keys (JWKS) to validate the token. If you run your own Fulcio, that server needs access to the issuer and any JWKS host it advertises.
+`oidc.circleci.com` or `token.actions.githubusercontent.com`, or your `oidc_issuer` (for example on CircleCI Server), is the token issuer the keyless scripts name, but the job never connects to it. The orb gets its token from the job (`circleci run oidc get` on CircleCI, the job's token service on GitHub Actions) and hands it to Cosign, so Cosign skips its OIDC login flow. Fulcio, not the runner, reads the issuer's discovery document and signing keys (JWKS) to validate the token. If you run your own Fulcio, that server needs access to the issuer and any JWKS host it advertises.
 
 ## 🤝 Contributing
 
@@ -797,7 +892,7 @@ This is an unofficial, community-maintained orb, and contributions are welcome! 
 
   ```bash
   yamllint .
-  shellcheck src/scripts/*.sh src/scripts/lib/*.sh test/*.sh
+  shellcheck src/scripts/*.sh src/scripts/lib/*.sh actions/*.sh test/*.sh
   for t in test/*_test.sh; do bash "$t" || break; done
   circleci orb pack src > orb.yml && circleci orb validate orb.yml
   ```
@@ -819,5 +914,5 @@ Need the logo for a slide deck, blog post, or internal developer portal? PNGs wi
   <br>
   <sub>Sign it in CI, verify it before it ships. If this orb helps your team, a ⭐ helps others find it.</sub>
   <br>
-  <sub><a href="#cosign-orb-for-circleci">Back to top ↑</a></sub>
+  <sub><a href="#cosign-for-circleci-and-github-actions">Back to top ↑</a></sub>
 </div>

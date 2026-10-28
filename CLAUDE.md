@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a CircleCI Orb for Cosign, a signing and verification tool for container images. The orb simplifies installation and use of Cosign within CircleCI pipelines.
+This is a CircleCI Orb, and set of GitHub Actions, for Cosign, a signing and verification tool for container images. It simplifies installation and use of Cosign within CircleCI pipelines and GitHub workflows.
 
 ## Development Commands
 
@@ -15,6 +15,8 @@ Local validation:
 - `yamllint .` - YAML linting (config: relaxed profile, max 200 char lines)
 - `shellcheck src/scripts/*.sh` - Shell script linting
 - `bash test/env_subst_test.sh` - Checks that scripts pass parameter values to `circleci env subst` on stdin (`printf '%s' "${PARAM_X}" | circleci env subst`); as an argument, a value starting with `-` is parsed as a CLI flag
+- `for t in test/*_test.sh; do bash "$t" || break; done` - Every offline test, including `test/ci_lib_test.sh` (`lib/ci.sh`) and `test/actions_test.sh` (the GitHub Actions)
+- `actionlint .github/workflows/actions.yml` - Lints the GitHub Actions workflow
 
 ### Local Development Environment
 
@@ -39,7 +41,9 @@ src/
 ├── @orb.yml           # Orb metadata and version
 ├── commands/          # YAML command definitions (install, sign, verify, attest, verify_attestation, sign_blob, verify_blob, generate_key_pair, check_oidc)
 ├── scripts/           # Bash implementations for each command
+│   └── lib/           # Shared helpers: ci.sh, image_ref.sh, bundle_format.sh
 └── examples/          # Usage examples
+actions/               # One GitHub Action per command, plus the shared run_script.sh
 ```
 
 ### Commands
@@ -66,7 +70,22 @@ The v3 approach creates a minimal signing config file inline:
 
 Shared shell helpers live in `src/scripts/lib/`. Commands pass them to the step through an environment variable (`SCRIPT_..._LIB: << include(scripts/lib/....sh) >>`) and the script `eval`s it. Unit tests for them are in `test/` and run in the `lint-pack` workflow.
 
+`lib/ci.sh` (`SCRIPT_CI_LIB`, passed to every command but `install` and `generate_key_pair`) lets a script run on CircleCI and GitHub Actions alike:
+- `ci_subst` pipes a parameter to `circleci env subst` on stdin, and uses it as is without the CLI (GitHub Actions, local runs).
+- `ci_bool` reads `1`/`true` and `0`/`false`/empty, and fails on anything else, naming the parameter: action inputs are strings CircleCI never checked.
+- `ci_oidc_issuer` and `ci_identity_regexp` give keyless signing and verification the job's identity: on GitHub Actions (`GITHUB_ACTIONS=true`) `https://token.actions.githubusercontent.com` (`<server>/_services/token` on GHES) and `^https://github\.com/<owner>/<repo>/\.github/workflows/` (any workflow of the repository, dots escaped); on CircleCI the organization's issuer and the project's pipeline definitions, from `CIRCLE_ORGANIZATION_ID` and `CIRCLE_PROJECT_ID`.
+- `ci_sigstore_token` gets a token with the `sigstore` audience: on GitHub Actions from `ACTIONS_ID_TOKEN_REQUEST_URL` with `&audience=sigstore`, the request token passed to curl as a header on stdin (`-H @-`), never as an argument, and an error naming `id-token: write` when the job has no token; on CircleCI from `circleci run oidc get`.
+- `ci_jwt_claims` decodes a JWT's payload (base64url, no padding).
+
+`test/ci_lib_test.sh` covers them with stand-ins for curl and the CircleCI CLI. Tests that run a script directly clear `GITHUB_ACTIONS` where the outcome depends on it, so they pass on GitHub's runners too.
+
 Cosign 3.1 deprecates several flags the orb still passes (`--private-infrastructure`, `--tlog-upload`, `--fulcio-url`, `--rekor-url`, `--oidc-issuer`, `--new-bundle-format`, and the legacy blob `--output-signature` / `--output-certificate` / `--signature` flags). They remain registered and behave the same through 3.1.3. Removal is planned for v4, which will need a separate migration to `--bundle`, `--signing-config`, and `--insecure-ignore-tlog`.
+
+### GitHub Actions (`actions/`)
+
+Every command has a composite action of the same name in `actions/<command>/action.yml`, with inputs identical to the command's parameters (names and defaults). Each step passes inputs to the orb's script as `PARAM_*` environment variables, as the command does, and runs it with `bash "${GITHUB_ACTION_PATH}/../run_script.sh" SCRIPT SCRIPT_..._LIB=<lib>...`, one `NAME=FILE` per library the command includes. Inputs never appear inside a `run:` script. `install` restores and saves `actions/cache` with the command's key ingredients. `private_key`, `password` and `public_key` name variables a workflow sets in the `env` of the step (from secrets), or that `generate_key_pair` exports through `GITHUB_ENV`; on GitHub Actions it first prints `::add-mask::` for the password and private key. Every `uses:` is pinned to a commit SHA with its version in a comment.
+
+`actions/run_script.sh` and `test/actions_test.sh` are identical in every juburr orb that ships actions; never edit them here alone. Keep the actions in sync with the command YAML by hand or with an equivalent generator, and quote any default a YAML 1.1 reader would take for a boolean or number: every input is a string. Without the CircleCI CLI, `ci_subst` uses values as they are. `test/actions_test.sh` checks all of this.
 
 ### Key Format Compatibility
 
@@ -88,6 +107,7 @@ Keys generated with v2/v3 cannot be used with v1 (error: `unsupported pem type: 
 - No `sudo` usage - installs to user-owned directories
 - Keys passed via environment variables (base64-encoded); credential parameters are `env_var_name`s, never literal secrets
 - `generate_key_pair` uses the password already in the variable named by `password_env_var`, or generates a random one, and writes its exports to `$BASH_ENV` with `printf 'export %s=%q\n'` so no value can break or inject into later steps (`test/generate_key_pair_test.sh`)
+- On GitHub Actions, `generate_key_pair` masks the password and private key (`::add-mask::`) before they reach `GITHUB_ENV`, which the runner doesn't mask (`test/generate_key_pair_test.sh`)
 - Key files (`cosign.key`, `cosign.pub`) are written to a private `mktemp -d` directory created under `umask 077`, never the working directory, where they would overwrite (and the cleanup would then shred) a project's own key files or follow a symlink. `generate_key_pair` runs `cosign generate-key-pair` inside that directory in a subshell. Keys are set to 0400, and the script's single EXIT trap shreds them with `shred -vzuf -n 10` and removes the directory (`test/key_files_test.sh`, `test/generate_key_pair_test.sh`)
 
 ### Shell conventions
@@ -98,13 +118,15 @@ Every script under `src/scripts/` except the shared install code follows the con
 - No `set +o history`, never enable xtrace. Scripts that handle a key, password or token run `set +o xtrace` with a one-line comment.
 - Messages start with `ERROR: ` or `WARN: ` and go to stderr, continuation lines included. Every non-zero exit prints an `ERROR:` line first.
 - `$BASH_ENV` exports use `printf 'export %s=%q\n'`. `eval` only runs `"${..._LIB}"` / `"${..._SCRIPT}"`.
-- Secrets never go on a command line, with one known exception: Cosign 1 keyless signing (`sign`, `attest`, `sign_blob`) passes the OIDC token as `--identity-token=...`, which other processes on the executor can see. Cosign 2 and 3 read it from the exported `SIGSTORE_ID_TOKEN` instead. Secret and temporary files come from `mktemp`, are removed by the script's one EXIT trap, and never use fixed names.
+- Secrets never go on a command line, with one known exception: Cosign 1 keyless signing (`sign`, `attest`, `sign_blob`) passes the OIDC token as `--identity-token=...`, which other processes on the executor can see. Cosign 2 and 3 read it from the exported `SIGSTORE_ID_TOKEN` instead. On GitHub Actions, the request token for the OIDC token reaches curl on stdin. Secret and temporary files come from `mktemp`, are removed by the script's one EXIT trap, and never use fixed names.
 - `generate_key_pair` wraps its `$BASH_ENV` exports in lines that turn xtrace off while later steps source them and back on after, so a job that traces every step never prints the password or keys.
 
 ## Key Files
 
-- `.circleci/config.yml` - Main CI pipeline (lint, pack, review, shellcheck)
+- `.circleci/config.yml` - Main CI pipeline (lint, pack, review, shellcheck, the `test/` scripts; `test-ci-lib` and `test-actions` run `test/ci_lib_test.sh` and `test/actions_test.sh`)
 - `.circleci/test-deploy.yml` - Test and publish workflow
+- `.github/workflows/actions.yml` - The actions on GitHub's runners: `offline-tests`; `install` (amd64 and arm64, a second install from the cache, an unlisted version failing, `check_oidc` failing without `id-token: write`, a blob signed and verified with a generated key pair, then Cosign 2.6.5); `install-from-cache` (the download hosts blocked); `private-key` (Cosign 1.13.6, 2.6.5 and the default against a local `registry:2`: sign with annotations, verify, attest, by tag and digest, a blob, and a changed blob that must fail); and `keyless` (`id-token: write`, the same three versions: sign, verify with the auto-detected and the exact workflow identity, another repository's identity failing on Cosign 2+, attest, and a blob), which publishes to the public Rekor log and is skipped for pull requests from forks
+- `actions/<command>/action.yml` - The GitHub Actions
 - `src/commands/*.yml` - Orb command definitions with parameters
 - `src/scripts/*.sh` - Shell implementations
 
@@ -137,6 +159,7 @@ The test pipeline validates:
 2. **Sign/Verify workflow** - Full image signing and verification cycle
 3. **Attest/Verify workflow** - Attestation creation and verification
 4. **Version compatibility** - Ensures scripts work correctly with v1, v2, and v3
+5. **GitHub Actions** - `.github/workflows/actions.yml` runs every action on GitHub-hosted runners, keyless included
 
 ## Release Process
 

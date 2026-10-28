@@ -54,7 +54,7 @@ run() {
   set +e
   (
     cd "${WORK}"
-    env -u COSIGN_PASSWORD -u COSIGN_PRIVATE_KEY -u COSIGN_PUBLIC_KEY \
+    env -u COSIGN_PASSWORD -u COSIGN_PRIVATE_KEY -u COSIGN_PUBLIC_KEY -u GITHUB_ACTIONS \
       PATH="${TMP}/bin:${PATH}" BASH_ENV="${WORK}/bash_env" TMPDIR="${WORK_TMP}" \
       PARAM_PRIVATE_KEY_ENV_VAR=COSIGN_PRIVATE_KEY PARAM_PUBLIC_KEY_ENV_VAR=COSIGN_PUBLIC_KEY \
       PARAM_PASSWORD_ENV_VAR=COSIGN_PASSWORD "$@" \
@@ -149,6 +149,24 @@ for how in "set -x in BASH_ENV" "SHELLOPTS=xtrace"; do
     printf 'ok: sourcing BASH_ENV with xtrace on (%s) traces neither the password nor the key\n' "${how}"
   fi
 done
+
+# On GitHub Actions the keys and password reach later steps through
+# GITHUB_ENV, which the runner doesn't mask, so the script registers the
+# password and the private key as secrets first. Elsewhere it prints no such
+# command.
+run "github masks" GITHUB_ACTIONS=true PARAM_PASSWORD_ENV_VAR=MY_PASSWORD MY_PASSWORD="mask-me-${RANDOM}"
+if [[ "$STATUS" -eq 0 ]] && grep -qxF "::add-mask::$(exported MY_PASSWORD)" "${TMP}/out" \
+  && grep -qxF "::add-mask::$(exported COSIGN_PRIVATE_KEY)" "${TMP}/out"; then
+  printf 'ok: on GitHub Actions the password and private key are masked\n'
+else
+  fail_case "github masks: exit ${STATUS}"
+fi
+run "no masks" PARAM_PASSWORD_ENV_VAR=MY_PASSWORD MY_PASSWORD="mask-me-${RANDOM}"
+if [[ "$STATUS" -eq 0 ]] && ! grep -q "::add-mask::" "${TMP}/out"; then
+  printf 'ok: elsewhere nothing is masked\n'
+else
+  fail_case "no masks: exit ${STATUS}"
+fi
 
 run "invalid name" 'PARAM_PASSWORD_ENV_VAR=X;touch pwned'
 if [[ "$STATUS" -ne 0 && ! -s "${WORK}/bash_env" ]] && ! compgen -G "${WORK}/pwned*" > /dev/null; then

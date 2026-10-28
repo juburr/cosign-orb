@@ -1,0 +1,78 @@
+name: Sign a file with Cosign
+description: >
+  Signs a blob (arbitrary file) using Cosign. Supports private key signing and
+  keyless signing via OIDC. The GitHub Actions twin of the orb's sign_blob
+  command.
+author: juburr
+
+inputs:
+  blob:
+    description: >
+      Path to the file to sign.
+    required: true
+  fulcio_url:
+    description: >
+      Fulcio CA URL for keyless signing.
+    default: https://fulcio.sigstore.dev
+  keyless:
+    description: >
+      Use keyless signing with the job's OIDC identity. When enabled, signs
+      using Fulcio certificates and records signatures in the Rekor transparency
+      log. No private key required. Needs an OIDC token: on CircleCI Cloud or
+      Server 4.x+, or in a GitHub Actions job with the id-token: write
+      permission. When using keyless mode, output_certificate is required to
+      save the Fulcio certificate.
+    default: "false"
+  oidc_issuer:
+    description: >
+      OIDC issuer URL (for private Fulcio instances only). If empty, the job's
+      own issuer is used: its CircleCI organization's, or GitHub Actions'.
+    default: ""
+  output_certificate:
+    description: >
+      Path of the file to write the Fulcio certificate to (Cosign's
+      --output-certificate). Keyless only, and required when keyless is true.
+      The certificate is needed for verification alongside the signature.
+    default: ""
+  output_signature:
+    description: >
+      Path of the file to write the signature to (Cosign's --output-signature).
+      If empty, the signature is printed to stdout.
+    default: ""
+  password:
+    description: >
+      Name of the environment variable that holds the password for the private
+      key. Ignored when keyless is true. Set the variable in the env of the step
+      (or job) that uses this action, from a secret, or with the
+      generate_key_pair action.
+    default: COSIGN_PASSWORD
+  private_key:
+    description: >
+      Name of the environment variable that holds the base64-encoded private
+      key. Ignored when keyless is true. Set the variable in the env of the step
+      (or job) that uses this action, from a secret, or with the
+      generate_key_pair action.
+    default: COSIGN_PRIVATE_KEY
+  rekor_url:
+    description: >
+      Rekor transparency log URL for keyless signing.
+    default: https://rekor.sigstore.dev
+
+runs:
+  using: composite
+  steps:
+    - name: Sign blob
+      shell: bash
+      env:
+        PARAM_BLOB: ${{ inputs.blob }}
+        PARAM_FULCIO_URL: ${{ inputs.fulcio_url }}
+        PARAM_KEYLESS: ${{ inputs.keyless }}
+        PARAM_OIDC_ISSUER: ${{ inputs.oidc_issuer }}
+        PARAM_OUTPUT_CERTIFICATE: ${{ inputs.output_certificate }}
+        PARAM_OUTPUT_SIGNATURE: ${{ inputs.output_signature }}
+        PARAM_PASSWORD: ${{ inputs.password }}
+        PARAM_PRIVATE_KEY: ${{ inputs.private_key }}
+        PARAM_REKOR_URL: ${{ inputs.rekor_url }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/sign_blob.sh"
+        "SCRIPT_CI_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/ci.sh"

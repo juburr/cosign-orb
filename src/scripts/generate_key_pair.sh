@@ -77,6 +77,13 @@ echo "Encoding keys..."
 PRIVATE_KEY_B64=$(base64 -w0 "${KEY_DIR}/cosign.key")
 PUBLIC_KEY_B64=$(base64 -w0 "${KEY_DIR}/cosign.pub")
 
+# GitHub Actions masks secrets it knows of in the log, and these reach later
+# steps through GITHUB_ENV, which it doesn't mask. The runner reads each
+# ::add-mask:: line and doesn't print it.
+if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+    printf '::add-mask::%s\n' "${PASSWORD}" "${PRIVATE_KEY_B64}"
+fi
+
 # Export to BASH_ENV for use in subsequent steps. %q quotes each value for
 # the shell, so no character in the password can end the value early or run
 # as a command when later steps source BASH_ENV.
@@ -105,4 +112,4 @@ fi
 echo ""
 echo "Key pair generated successfully."
 echo "WARN: These keys are for development/testing only." >&2
-echo "For production, use a key management system or store keys in CircleCI contexts." >&2
+echo "WARN: For production, use a key management system, or store keys in CircleCI contexts or GitHub Actions secrets." >&2

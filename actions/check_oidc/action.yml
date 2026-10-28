@@ -1,0 +1,17 @@
+name: Check the job's OIDC token for Cosign
+description: >
+  Verifies that the job's OIDC token is available and displays key claims:
+  CircleCI's CIRCLE_OIDC_TOKEN, or, in a GitHub Actions job, a token from
+  GitHub's token service, which needs the id-token: write permission. Use this
+  command to confirm OIDC is properly configured before using keyless signing
+  commands. The GitHub Actions twin of the orb's check_oidc command.
+author: juburr
+
+runs:
+  using: composite
+  steps:
+    - name: Check OIDC Token
+      shell: bash
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/check_oidc.sh"
+        "SCRIPT_CI_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/ci.sh"

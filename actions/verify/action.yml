@@ -1,0 +1,83 @@
+name: Verify a container image signature with Cosign
+description: >
+  Verifies a container image signature using Cosign. Supports public key and
+  keyless verification. The GitHub Actions twin of the orb's verify command.
+author: juburr
+
+inputs:
+  bundle_format:
+    description: >
+      Which signature storage format must satisfy verification. auto: Cosign's
+      own choice. Cosign 2.6.3+ and 3 prefer Sigstore bundles when any are
+      attached and otherwise read legacy objects. bundle: only Sigstore bundles
+      (OCI referrers). Needs Cosign 2.6.0+. legacy: only sha256-<hex>.sig / .att
+      objects. Where Cosign cannot be limited to one format (bundle on Cosign 3,
+      legacy on Cosign 2.6.3+), the step also fails if objects in the other
+      format verify.
+    default: auto
+  certificate_identity:
+    description: >
+      Expected identity in the Fulcio certificate (keyless only). CircleCI:
+      "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/<pipeline-def-id>"
+      GitHub Actions:
+      "https://github.com/<owner>/<repo>/.github/workflows/<file>@<ref>" If
+      neither this nor certificate_identity_regexp is set, a regexp is
+      auto-detected from the job.
+    default: ""
+  certificate_identity_regexp:
+    description: >
+      Regular expression to match certificate identity (keyless only). CircleCI:
+      "https://circleci.com/api/v2/projects/<project-id>/pipeline-definitions/.*"
+      GitHub Actions: "^https://github\.com/<owner>/<repo>/\.github/workflows/"
+      If not provided (and certificate_identity is empty), auto-detected from
+      the job.
+    default: ""
+  certificate_oidc_issuer:
+    description: >
+      Expected OIDC issuer in the Fulcio certificate (keyless only). CircleCI:
+      "https://oidc.circleci.com/org/<org-id>" GitHub Actions:
+      "https://token.actions.githubusercontent.com" If not provided,
+      auto-detected from the job.
+    default: ""
+  certificate_oidc_issuer_regexp:
+    description: >
+      Regular expression to match OIDC issuer (keyless only). Example:
+      "https://oidc.circleci.com/org/.*"
+    default: ""
+  image:
+    description: >
+      Container image to verify. Include the full path with the tag at the end.
+    required: true
+  keyless:
+    description: >
+      Use keyless verification. When enabled, verifies using certificate
+      identity and OIDC issuer instead of a public key. An identity and issuer
+      left empty are auto-detected from the job: on CircleCI from
+      CIRCLE_ORGANIZATION_ID and CIRCLE_PROJECT_ID, and on GitHub Actions from
+      the repository, so that signatures made by any of its workflows verify.
+    default: "false"
+  public_key:
+    description: >
+      Name of the environment variable that holds the base64-encoded public key.
+      Ignored when keyless is true. Set the variable in the env of the step (or
+      job) that uses this action, or with the generate_key_pair action.
+    default: COSIGN_PUBLIC_KEY
+
+runs:
+  using: composite
+  steps:
+    - name: Verify signature
+      shell: bash
+      env:
+        PARAM_BUNDLE_FORMAT: ${{ inputs.bundle_format }}
+        PARAM_CERTIFICATE_IDENTITY: ${{ inputs.certificate_identity }}
+        PARAM_CERTIFICATE_IDENTITY_REGEXP: ${{ inputs.certificate_identity_regexp }}
+        PARAM_CERTIFICATE_OIDC_ISSUER: ${{ inputs.certificate_oidc_issuer }}
+        PARAM_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ inputs.certificate_oidc_issuer_regexp }}
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_KEYLESS: ${{ inputs.keyless }}
+        PARAM_PUBLIC_KEY: ${{ inputs.public_key }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/verify.sh"
+        "SCRIPT_BUNDLE_FORMAT_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/bundle_format.sh"
+        "SCRIPT_CI_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/ci.sh"

@@ -9,11 +9,19 @@ set -euo pipefail
 # A job can turn xtrace on for every step (SHELLOPTS, or set -x in $BASH_ENV), and it would print the key and password.
 set +o xtrace
 
+# Load the CI helpers (src/scripts/lib/ci.sh): parameter expansion, booleans,
+# and the job's OIDC identity on CircleCI or GitHub Actions.
+if [[ -z "${SCRIPT_CI_LIB:-}" ]]; then
+    echo "ERROR: The shared helpers were not loaded. SCRIPT_CI_LIB is empty." >&2
+    exit 1
+fi
+eval "${SCRIPT_CI_LIB}"
+
 # Read in orb parameters
-IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
-PREDICATE=$(printf '%s' "${PARAM_PREDICATE}" | circleci env subst)
-PREDICATE_TYPE=$(printf '%s' "${PARAM_PREDICATE_TYPE}" | circleci env subst)
-KEYLESS="${PARAM_KEYLESS:-0}"
+IMAGE=$(ci_subst "${PARAM_IMAGE}")
+PREDICATE=$(ci_subst "${PARAM_PREDICATE}")
+PREDICATE_TYPE=$(ci_subst "${PARAM_PREDICATE_TYPE}")
+KEYLESS=$(ci_bool keyless "${PARAM_KEYLESS:-0}")
 BUNDLE_FORMAT="${PARAM_BUNDLE_FORMAT:-auto}"
 # Temporary signing config created by this script. Start empty so the cleanup
 # trap never removes a SIGNING_CONFIG path inherited from the job environment.
@@ -33,11 +41,12 @@ is_keyless_enabled() {
 # Can be overridden for private Fulcio deployments
 if [[ -n "${PARAM_OIDC_ISSUER:-}" ]]; then
     OIDC_ISSUER="${PARAM_OIDC_ISSUER}"
-elif [[ -n "${CIRCLE_ORGANIZATION_ID:-}" ]]; then
-    OIDC_ISSUER="https://oidc.circleci.com/org/${CIRCLE_ORGANIZATION_ID}"
 else
-    # Fallback to base URL (may not work with all Fulcio configurations)
-    OIDC_ISSUER="https://oidc.circleci.com"
+    # The job's issuer on GitHub Actions, or on CircleCI with
+    # CIRCLE_ORGANIZATION_ID; otherwise CircleCI's base URL (which may not
+    # work with every Fulcio configuration).
+    OIDC_ISSUER=$(ci_oidc_issuer)
+    OIDC_ISSUER=${OIDC_ISSUER:-https://oidc.circleci.com}
 fi
 
 # Only read key-related params if not using keyless
@@ -125,34 +134,15 @@ echo "  Image URI Digest: ${IMAGE_URI_DIGEST}"
 if is_keyless_enabled; then
     echo ""
     echo "=== Keyless Attestation Mode ==="
-    echo "Using CircleCI OIDC for identity-based attestation"
+    echo "Using the job's OIDC identity (CircleCI or GitHub Actions) for attestation"
     echo "  Fulcio URL: ${FULCIO_URL}"
     echo "  Rekor URL: ${REKOR_URL}"
     echo "  OIDC Issuer: ${OIDC_ISSUER}"
     echo ""
 
-    # Get OIDC token with correct audience for Sigstore
-    # The default CIRCLE_OIDC_TOKEN has org ID as audience, but Fulcio expects "sigstore"
+    # Get an OIDC token with the audience Fulcio expects, "sigstore".
     echo "Requesting OIDC token with Sigstore audience..."
-    if ! command -v circleci &> /dev/null; then
-        echo "ERROR: CircleCI CLI is not installed." >&2
-        echo "The circleci CLI is required to request OIDC tokens with custom audience." >&2
-        exit 1
-    fi
-
-    SIGSTORE_ID_TOKEN=$(circleci run oidc get --claims '{"aud": "sigstore"}')
-    if [[ -z "${SIGSTORE_ID_TOKEN:-}" ]]; then
-        echo "ERROR: Failed to get OIDC token from CircleCI." >&2
-        echo "" >&2
-        echo "Keyless attestation requires CircleCI OIDC to be enabled." >&2
-        echo "Please ensure:" >&2
-        echo "  1. You are using CircleCI Cloud or Server 4.x+" >&2
-        echo "  2. OIDC is enabled for your organization" >&2
-        echo "  3. Your plan supports OIDC tokens" >&2
-        echo "" >&2
-        echo "Run the 'check_oidc' command to diagnose OIDC issues." >&2
-        exit 1
-    fi
+    SIGSTORE_ID_TOKEN=$(ci_sigstore_token) || exit 1
     export SIGSTORE_ID_TOKEN
     echo "OIDC token obtained (${#SIGSTORE_ID_TOKEN} characters)"
 

@@ -282,6 +282,7 @@ EOF
           PARAM_PRIVATE_KEY=TEST_KEY PARAM_PASSWORD=TEST_PASSWORD TEST_KEY=dGVzdA== TEST_PASSWORD=pw \
           SCRIPT_IMAGE_REF_LIB="$(cat "${ROOT}/src/scripts/lib/image_ref.sh")" \
           SCRIPT_BUNDLE_FORMAT_LIB="$(cat "$LIB")" \
+          SCRIPT_CI_LIB="$(cat "${ROOT}/src/scripts/lib/ci.sh")" \
           bash "${ROOT}/src/scripts/${script}.sh" > /dev/null 2>&1
       )
       set -e
@@ -384,6 +385,7 @@ EOF
         PARAM_IMAGE="registry.local:5000/app:1.0" PARAM_KEYLESS=0 PARAM_BUNDLE_FORMAT=bundle \
         PARAM_PREDICATE_TYPE=slsaprovenance PARAM_PUBLIC_KEY=TEST_PUBLIC_KEY TEST_PUBLIC_KEY=dGVzdA== \
         SCRIPT_BUNDLE_FORMAT_LIB="$(cat "$LIB")" \
+        SCRIPT_CI_LIB="$(cat "${ROOT}/src/scripts/lib/ci.sh")" \
         bash "${ROOT}/src/scripts/${script}.sh" > /dev/null 2>&1
     )
     local status=$?

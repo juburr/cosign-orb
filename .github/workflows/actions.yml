@@ -1,0 +1,417 @@
+# Tests the GitHub Actions in actions/ on GitHub's own runners, as
+# .circleci/test-deploy.yml tests the orb's commands on CircleCI. Each job
+# runs the actions from this checkout (uses: ./actions/...), so a pull
+# request tests its own changes.
+name: GitHub Actions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run the offline tests
+        run: |
+          for test in test/*_test.sh; do
+            echo "=== ${test}"
+            bash "${test}"
+          done
+
+  # test-install-* and test-install-arm64: the default version on each
+  # architecture, a second install from the cache, an unlisted version, a
+  # blob signed and verified with a generated key pair, then Cosign 2.
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # e_machine field of the ELF header: 3e00 is x86-64, b700 is aarch64.
+          # Quoted, since YAML reads an unquoted 3e00 as the number 3.
+          - runner: ubuntu-24.04
+            elf: "3e00"
+          - runner: ubuntu-24.04-arm
+            elf: "b700"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/install
+      - name: Verify the install
+        env:
+          ELF: ${{ matrix.elf }}
+        run: |
+          version=$(awk '/^  version:/ { found = 1 } found && /default:/ { gsub(/"/, "", $2); print $2; exit }' src/commands/install.yml)
+          [[ "$(command -v cosign)" == "${HOME}/bin/cosign" ]]
+          od -An -tx1 -j18 -N2 "${HOME}/bin/cosign" | tr -d ' \n' | grep -Fx "${ELF}"
+          installed=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+          echo "Expected v${version}, installed ${installed}"
+          [[ "${installed}" == "v${version}" ]]
+      # The first install saved the release to the cache, so this one
+      # restores it. It goes to a directory of its own, which later steps
+      # find first on the PATH.
+      - uses: ./actions/install
+        with:
+          install_path: ${{ runner.temp }}/second
+      - name: Verify the second install comes first on the PATH
+        env:
+          SECOND: ${{ runner.temp }}/second
+        run: |
+          [[ "$(command -v cosign)" == "${SECOND}/cosign" ]]
+          cosign version
+      # A version the checksum table doesn't list, which strict refuses
+      # before downloading anything.
+      - name: Install an unlisted version, which must fail
+        id: unlisted
+        continue-on-error: true
+        uses: ./actions/install
+        with:
+          version: 3.1.0
+          caching: false
+          install_path: ${{ runner.temp }}/unlisted
+      - name: Verify it failed before installing anything
+        env:
+          OUTCOME: ${{ steps.unlisted.outcome }}
+          UNLISTED: ${{ runner.temp }}/unlisted
+        run: |
+          [[ "${OUTCOME}" == failure ]]
+          [[ ! -e "${UNLISTED}/cosign" ]]
+      # This job has no id-token: write permission, so there is no OIDC
+      # token to check.
+      - name: Check OIDC without the id-token permission, which must fail
+        id: no-oidc
+        continue-on-error: true
+        uses: ./actions/check_oidc
+      - name: Verify the OIDC check failed
+        env:
+          OUTCOME: ${{ steps.no-oidc.outcome }}
+        run: '[[ "${OUTCOME}" == failure ]]'
+      # A random password, which generate_key_pair exports with the keys.
+      - uses: ./actions/generate_key_pair
+      - name: Verify the keys and password reach later steps
+        run: |
+          [[ ${#COSIGN_PASSWORD} -ge 32 ]]
+          printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 --decode | grep -q "ENCRYPTED SIGSTORE PRIVATE KEY"
+          printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode | grep -q "PUBLIC KEY"
+      - name: Create a test blob
+        run: echo "${RUNNER_ARCH} test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+      - uses: ./actions/sign_blob
+        with:
+          blob: testblob.txt
+          output_signature: testblob.txt.sig
+      - uses: ./actions/verify_blob
+        with:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+      # A directory of its own, which later steps find before the second
+      # install's.
+      - uses: ./actions/install
+        with:
+          version: 2.6.5
+          install_path: ${{ runner.temp }}/v2
+      - name: Verify Cosign 2.6.5 was installed
+        env:
+          ELF: ${{ matrix.elf }}
+          V2: ${{ runner.temp }}/v2
+        run: |
+          [[ "$(command -v cosign)" == "${V2}/cosign" ]]
+          od -An -tx1 -j18 -N2 "${V2}/cosign" | tr -d ' \n' | grep -Fx "${ELF}"
+          installed=$(cosign version --json 2>&1 | jq -r '.gitVersion')
+          echo "Expected v2.6.5, installed ${installed}"
+          [[ "${installed}" == "v2.6.5" ]]
+
+  # A fresh runner with the release's download hosts blocked installs from
+  # the cache the install job saved, which only works if the cache is used.
+  install-from-cache:
+    needs: install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Block the download hosts
+        run: |
+          echo "127.0.0.1 github.com objects.githubusercontent.com release-assets.githubusercontent.com" | sudo tee -a /etc/hosts
+          if curl -sSf --max-time 10 -o /dev/null https://github.com; then
+            echo "github.com is still reachable."
+            exit 1
+          fi
+      - uses: ./actions/install
+      - name: Verify the install
+        run: |
+          [[ "$(command -v cosign)" == "${HOME}/bin/cosign" ]]
+          cosign version
+
+  # integration-test-v3/v2/v1, integration-test-image-refs (docker) and
+  # integration-test-blob-*: sign, verify, attest and verify the attestation
+  # with a generated key pair, by tag and by digest, against a local
+  # registry:2, then a blob. The digests come from docker, since the runners
+  # have no crane.
+  private-key:
+    strategy:
+      fail-fast: false
+      matrix:
+        cosign_version: ["default", "2.6.5", "1.13.6"]
+    runs-on: ubuntu-24.04
+    env:
+      REGISTRY: localhost:5000
+      IMAGE_REF: localhost:5000/cosign-orb/test:1.0
+      # A known password with a quote and spaces, so the generate_key_pair
+      # exports must quote it for the later steps to read the keys.
+      KEY_PAIR_PASSWORD: "test-password with a ' quote"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start registry:2 on localhost:5000
+        run: |
+          # mirror.gcr.io serves the Docker Hub registry:2 image without
+          # Docker Hub's anonymous pull limits. A pull from it can time out,
+          # so pull with retries before starting the container.
+          for attempt in 1 2 3; do
+            docker pull mirror.gcr.io/library/registry:2 && break
+            sleep $((attempt * 10))
+          done
+          docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
+          for _ in $(seq 1 30); do
+            curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
+            sleep 1
+          done
+          echo "The registry did not start."
+          docker logs registry
+          exit 1
+      - if: matrix.cosign_version == 'default'
+        uses: ./actions/install
+      - if: matrix.cosign_version != 'default'
+        uses: ./actions/install
+        with:
+          version: ${{ matrix.cosign_version }}
+      - name: Read the Cosign major version
+        run: |
+          major=$(cosign version --json 2>&1 | jq -r '.gitVersion' | cut -c2- | cut -d. -f1)
+          echo "Cosign major version: ${major}"
+          echo "COSIGN_MAJOR=${major}" >> "${GITHUB_ENV}"
+      - uses: ./actions/generate_key_pair
+        with:
+          password_env_var: KEY_PAIR_PASSWORD
+      - name: Build and push the test image
+        run: |
+          # SECURITY: DO NOT include sensitive data in test images.
+          echo "Test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+          printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+          docker build -t "${IMAGE_REF}" .
+          docker push "${IMAGE_REF}"
+          printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://github.com/actions"},"invocation":{"configSource":{}}}\n' > predicate.json
+      # A tag reference on a registry with a port.
+      - uses: ./actions/sign
+        with:
+          image: ${{ env.IMAGE_REF }}
+          password: KEY_PAIR_PASSWORD
+          annotations: build.source=github,build.version=v${{ env.COSIGN_MAJOR }}
+      - uses: ./actions/verify
+        with:
+          image: ${{ env.IMAGE_REF }}
+      - name: Verify the annotations are in the signature
+        run: |
+          # Both annotations, to check the comma-separated list was split.
+          printf '%s' "${COSIGN_PUBLIC_KEY}" | base64 --decode > cosign-verify.pub
+          flags=()
+          if [[ "${COSIGN_MAJOR}" != 1 ]]; then
+            flags=(--private-infrastructure)
+          fi
+          cosign verify --key cosign-verify.pub ${flags[@]+"${flags[@]}"} \
+            -a build.source=github -a "build.version=v${COSIGN_MAJOR}" "${IMAGE_REF}"
+          rm -f cosign-verify.pub
+      - uses: ./actions/attest
+        with:
+          image: ${{ env.IMAGE_REF }}
+          password: KEY_PAIR_PASSWORD
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - uses: ./actions/verify_attestation
+        with:
+          image: ${{ env.IMAGE_REF }}
+          predicate_type: slsaprovenance
+      - name: Read the test image digest
+        run: |
+          IMAGE_DIGEST_REF=$(docker image inspect --format '{{index .RepoDigests 0}}' "${IMAGE_REF}")
+          if [[ ! "${IMAGE_DIGEST_REF}" =~ ^localhost:5000/cosign-orb/test@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected digest reference '${IMAGE_DIGEST_REF}'"
+            exit 1
+          fi
+          echo "IMAGE_DIGEST_REF=${IMAGE_DIGEST_REF}" >> "${GITHUB_ENV}"
+      # A digest reference on a registry with a port.
+      - uses: ./actions/sign
+        with:
+          image: ${{ env.IMAGE_DIGEST_REF }}
+          password: KEY_PAIR_PASSWORD
+      - uses: ./actions/attest
+        with:
+          image: ${{ env.IMAGE_DIGEST_REF }}
+          password: KEY_PAIR_PASSWORD
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - uses: ./actions/verify
+        with:
+          image: ${{ env.IMAGE_DIGEST_REF }}
+      - uses: ./actions/verify_attestation
+        with:
+          image: ${{ env.IMAGE_DIGEST_REF }}
+          predicate_type: slsaprovenance
+      - name: Confirm nothing was signed under another name
+        run: |
+          catalog=$(curl -fsS "http://${REGISTRY}/v2/_catalog")
+          echo "Registry catalog: ${catalog}"
+          echo "${catalog}" | jq -e '.repositories == ["cosign-orb/test"]'
+      - name: Create a test blob
+        run: echo "Test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+      - uses: ./actions/sign_blob
+        with:
+          blob: testblob.txt
+          output_signature: testblob.txt.sig
+          password: KEY_PAIR_PASSWORD
+      - uses: ./actions/verify_blob
+        with:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+      - name: Change the blob
+        run: echo "changed" >> testblob.txt
+      - name: Verify the changed blob, which must fail
+        id: changed-blob
+        continue-on-error: true
+        uses: ./actions/verify_blob
+        with:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+      - name: Verify the changed blob was refused
+        env:
+          OUTCOME: ${{ steps.changed-blob.outcome }}
+        run: '[[ "${OUTCOME}" == failure ]]'
+
+  # integration-test-keyless-*: keyless signing and verification with this
+  # workflow's own OIDC identity. Fulcio issues the certificate and the
+  # signatures are recorded in the public Rekor transparency log, under this
+  # repository's workflow identity, as the CircleCI keyless tests record
+  # theirs. Pull requests from forks get no OIDC token, so they skip it.
+  keyless:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        cosign_version: ["default", "2.6.5", "1.13.6"]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGISTRY: localhost:5000
+      IMAGE_REF: localhost:5000/cosign-orb/keyless:1.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start registry:2 on localhost:5000
+        run: |
+          for attempt in 1 2 3; do
+            docker pull mirror.gcr.io/library/registry:2 && break
+            sleep $((attempt * 10))
+          done
+          docker run -d --name registry -p 5000:5000 mirror.gcr.io/library/registry:2
+          for _ in $(seq 1 30); do
+            curl -fsS "http://${REGISTRY}/v2/" > /dev/null && exit 0
+            sleep 1
+          done
+          echo "The registry did not start."
+          docker logs registry
+          exit 1
+      - if: matrix.cosign_version == 'default'
+        uses: ./actions/install
+      - if: matrix.cosign_version != 'default'
+        uses: ./actions/install
+        with:
+          version: ${{ matrix.cosign_version }}
+      - uses: ./actions/check_oidc
+      - name: Build and push the test image
+        run: |
+          # SECURITY: DO NOT include sensitive data in test images.
+          echo "Keyless test image built at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testfile.txt
+          printf 'FROM scratch\nCOPY testfile.txt /testfile.txt\n' > Dockerfile
+          docker build -t "${IMAGE_REF}" .
+          docker push "${IMAGE_REF}"
+          printf '{"buildType":"https://example.com/test-build","builder":{"id":"https://github.com/actions"},"invocation":{"configSource":{}}}\n' > predicate.json
+          echo "Keyless test blob created at $(date -u +%Y-%m-%dT%H:%M:%SZ)" > testblob.txt
+      - uses: ./actions/sign
+        with:
+          image: ${{ env.IMAGE_REF }}
+          keyless: true
+      # The issuer and identity regexp come from the job: GitHub Actions'
+      # issuer, and any workflow of this repository. Cosign 1 has no
+      # identity regexp, so it checks the issuer alone.
+      - uses: ./actions/verify
+        with:
+          image: ${{ env.IMAGE_REF }}
+          keyless: true
+      # The exact identity Fulcio records for a GitHub Actions job: the
+      # workflow file at the ref it ran from.
+      - uses: ./actions/verify
+        with:
+          image: ${{ env.IMAGE_REF }}
+          keyless: true
+          certificate_identity: ${{ github.server_url }}/${{ github.workflow_ref }}
+          certificate_oidc_issuer: https://token.actions.githubusercontent.com
+      - name: Verify with another repository's identity, which must fail
+        id: other-identity
+        if: matrix.cosign_version != '1.13.6'
+        continue-on-error: true
+        uses: ./actions/verify
+        with:
+          image: ${{ env.IMAGE_REF }}
+          keyless: true
+          certificate_identity_regexp: ^https://github\.com/juburr/not-this-repository/
+      - name: Verify the other identity was refused
+        if: matrix.cosign_version != '1.13.6'
+        env:
+          OUTCOME: ${{ steps.other-identity.outcome }}
+        run: '[[ "${OUTCOME}" == failure ]]'
+      - uses: ./actions/attest
+        with:
+          image: ${{ env.IMAGE_REF }}
+          keyless: true
+          predicate: predicate.json
+          predicate_type: slsaprovenance
+      - uses: ./actions/verify_attestation
+        with:
+          image: ${{ env.IMAGE_REF }}
+          keyless: true
+          predicate_type: slsaprovenance
+      - uses: ./actions/sign_blob
+        with:
+          blob: testblob.txt
+          keyless: true
+          output_signature: testblob.txt.sig
+          output_certificate: testblob.txt.crt
+      - uses: ./actions/verify_blob
+        with:
+          blob: testblob.txt
+          signature: testblob.txt.sig
+          certificate: testblob.txt.crt
+          keyless: true
