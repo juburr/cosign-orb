@@ -178,10 +178,12 @@ DEFAULT_ARCH=${ARCHES%% *}
 # Stubs. Downloads are served from SERVE by URL and logged to DOWNLOAD_LOG.
 # CURL_OLD=1 makes curl behave like a release before 7.52, which rejects
 # --retry-connrefused. CURL_RESETS=N makes the first N curl downloads drop
-# the connection.
+# the connection. Each curl call's login is logged to DOWNLOAD_LOG.login, as
+# the URL, then the netrc file's mode and content (or "none"), and whether
+# --no-location-trusted was given.
 cat > "${STUBS}/curl" << 'EOF'
 #!/usr/bin/env bash
-out="" url=""
+out="" url="" netrc="" trusted=default
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help)
@@ -199,11 +201,20 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -o) out=$2; shift 2 ;;
+        --netrc-file) netrc=$2; shift 2 ;;
+        --no-location-trusted) trusted=no; shift ;;
+        # --no-location-trusted also stops curl following redirects.
+        --location) [[ "${trusted}" == no ]] && trusted=no-and-follows; shift ;;
         https://*) url=$1; shift ;;
         *) shift ;;
     esac
 done
 echo "${url}" >> "${DOWNLOAD_LOG}"
+if [[ -n "${netrc}" ]]; then
+    printf '%s netrc=%s:%s location-trusted=%s\n' "${url}" "$(stat -c %a "${netrc}")" "$(tr '\n' ' ' < "${netrc}")" "${trusted}"
+else
+    printf '%s netrc=none location-trusted=%s\n' "${url}" "${trusted}"
+fi >> "${DOWNLOAD_LOG}.login"
 if [[ "$(wc -l < "${DOWNLOAD_LOG}")" -le "${CURL_RESETS:-0}" ]]; then
     echo "curl: (56) Recv failure: Connection reset by peer" >&2
     exit 56
@@ -698,6 +709,98 @@ run_install FAIL_DOWNLOADS=1
 check "a failed download fails" failed
 check "says the download failed" said "Could not download ${TOOL_NAME}"
 check "an HTTP error isn't retried" download_count "${URL_COUNT}"
+
+begin "a download mirror's login"
+# mirror_download NETRC_CONTENT [VAR=value ...]: in CASE, writes
+# NETRC_CONTENT (if not empty) to ~/.netrc, then registers a mirror and
+# downloads one URL under it and one that isn't, as a tool definition's
+# install does. OUTPUT is what the install printed; login_for reads the
+# stub's log of the login each curl call got.
+MIRROR="https://Mirror.Example:8443/artifactory/github"
+mirror_download() {
+    local content=$1
+    shift
+    if [[ -n "${content}" ]]; then
+        printf '%b' "${content}" > "${CASE}/home/.netrc"
+        chmod 600 "${CASE}/home/.netrc"
+    fi
+    : > "${CASE}/downloads.log.login"
+    # shellcheck disable=SC2016 # expanded by the inner bash
+    OUTPUT=$(env -u NETRC "HOME=${CASE}/home" "PATH=${STUBS}:${PATH}" "DOWNLOAD_LOG=${CASE}/downloads.log" "SERVE_DIR=${SERVE}" \
+        "$@" bash -c '
+            source <(sed -n "/^# >>> shared install logic >>>\$/,/^# <<< shared install logic <<<\$/p" "$1")
+            ORB_WORK_DIR=$(mktemp -d "${CASE}/tmp/work.XXXXXX")
+            orb_use_mirror "$2"
+            orb_download "${CASE}/tmp/a" "$2/asset" || true
+            orb_download "${CASE}/tmp/b" "https://github.com/asset" || true
+            ' _ "${SCRIPT}" "${MIRROR}" 2>&1)
+    RC=$?
+}
+login_for() {
+    grep -qxF -- "$1" "${CASE}/downloads.log.login" && return 0
+    OUTPUT+=$'\n'"logins: $(cat "${CASE}/downloads.log.login")"
+    return 1
+}
+export CASE
+SECRET_NETRC='# github.com is a token for another host\nmachine github.com login gh password gh-token\n'
+SECRET_NETRC+='machine mirror.example login ci password s3cret\nmachine mirror.example login ci password second\n'
+SECRET_NETRC+='machine 127.0.0.1 login ci\ndefault login anyone password dflt\n'
+new_case
+mirror_download "${SECRET_NETRC}"
+check "the mirror gets the first entry for its host alone, in a private file, never forwarded on a redirect" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
+check "another URL gets no login" login_for "https://github.com/asset netrc=none location-trusted=default"
+check "says which entry it uses" said "mirror login:     the entry for mirror.example in ${CASE}/home/.netrc"
+check "never shows the login" not_said "s3cret"
+check "and leaves nothing in the working directory" test -z "$(ls -A "${CASE}/work")"
+new_case
+printf 'machine mirror.example:8443 login ci password from-netrc-var\n' > "${CASE}/netrc"
+mirror_download "" "NETRC=${CASE}/netrc"
+check "NETRC names the file, and an entry with the port, as go writes it, counts" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password from-netrc-var  location-trusted=no-and-follows"
+new_case
+mirror_download 'machine 127.0.0.1 login ci password x\ndefault login anyone password dflt\n'
+check "a default entry is never used" login_for "${MIRROR}/asset netrc=none location-trusted=default"
+check "the mirror is used without a login" said "mirror login:     none (${CASE}/home/.netrc has no entry for mirror.example)"
+check "and a failed download says how to give it one" said "If mirror.example needs a login, put an entry for it in ${CASE}/home/.netrc"
+new_case
+mirror_download 'machine mirror.example login ci\nmachine other login a password b\n'
+check "an entry without a password is not used" login_for "${MIRROR}/asset netrc=none location-trusted=default"
+check "with a warning" said "has no login or no password, so the mirror is used without a login"
+new_case
+mirror_download 'machine mirror.example login ci password "quoted value"\n'
+check "a quoted value is not used" login_for "${MIRROR}/asset netrc=none location-trusted=default"
+check "with a warning" said "has a quoted login or password"
+new_case
+mirror_download 'macdef init\nmachine mirror.example login macro password macro\n\n# machine mirror.example login commented password out\nmachine mirror.example\n  login ci\n  password multi-line\n'
+check "a macdef body and comments are skipped, and an entry can span lines" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password multi-line  location-trusted=no-and-follows"
+new_case
+mirror_download 'machine mirror.example login ci password\n# a note between a keyword and its value\n   # and an indented one\nafter-comments\n'
+check "a comment line between a keyword and its value is skipped, as curl skips it" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password after-comments  location-trusted=no-and-follows"
+new_case
+mirror_download "${SECRET_NETRC}"
+chmod 644 "${CASE}/home/.netrc"
+mirror_download ""
+check "a .netrc other users can read is reported" said "can be read by other users (mode 644)"
+new_case
+mirror_download ""
+check "without a .netrc, the mirror is used without a login" said "mirror login:     none (no ${CASE}/home/.netrc file)"
+new_case
+mirror_download "${SECRET_NETRC}" "PATH=${NO_CURL}"
+check "wget, which can't be limited to the mirror's entry, is refused" said "which this orb sends only with curl"
+check "before it downloads anything" no_downloads
+new_case
+# shellcheck disable=SC2016 # expanded by the inner bash
+OUTPUT=$(env "HOME=${CASE}/home" bash -c '
+    source <(sed -n "/^# >>> shared install logic >>>\$/,/^# <<< shared install logic <<<\$/p" "$1")
+    ORB_WORK_DIR=${CASE}/tmp
+    orb_use_mirror "https://ci:s3cret@mirror.example/github"
+    ' _ "${SCRIPT}" 2>&1)
+RC=$?
+check "a mirror URL with credentials is refused" failed
+check "without showing them" not_said "s3cret"
 check "installs nothing" not_installed
 check "leaves no temporary files" clean_tmp
 
