@@ -796,7 +796,7 @@ new_case
 OUTPUT=$(env "HOME=${CASE}/home" bash -c '
     source <(sed -n "/^# >>> shared install logic >>>\$/,/^# <<< shared install logic <<<\$/p" "$1")
     ORB_WORK_DIR=${CASE}/tmp
-    orb_use_mirror "https://ci:s3cret@mirror.example/github"
+    orb_use_mirror "https://ci:s3cret@mirror.example/github" # trufflehog:ignore (a fake credential the install must refuse)
     ' _ "${SCRIPT}" 2>&1)
 RC=$?
 check "a mirror URL with credentials is refused" failed
