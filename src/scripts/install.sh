@@ -285,8 +285,8 @@ orb_use_mirror() {
     fi
     # The awk program writes the entry straight to the private file, so the
     # login never passes through a shell variable or a command line. It reads
-    # the file as curl does, a token at a time: a line whose first
-    # non-blank character is # is a comment, wherever it falls, a macdef
+    # the file as curl does, a token at a time: a token that starts with #
+    # starts a comment to the end of its line, wherever it falls, a macdef
     # runs to the next blank line, keywords are read in any case, and a
     # quoted string is one token, so nothing inside one is ever a keyword.
     # The first machine entry named after the host, or the host and port as
@@ -335,7 +335,9 @@ orb_use_mirror() {
                 start = p
                 while (p <= n && (c = substr(line, p, 1)) != " " && c != "\t") { p++ }
                 token = substr(line, start, p - start)
-                if (want == "" && substr(token, 1, 1) == "#") { break }
+                # A # starts a comment that runs to the end of the line, even
+                # between a keyword and its value, which then comes next.
+                if (substr(token, 1, 1) == "#") { break }
                 key = tolower(token)
                 if (want == "machine") {
                     if (matched) { finish() }

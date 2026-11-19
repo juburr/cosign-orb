@@ -807,6 +807,14 @@ mirror_download 'machine mirror.example login ci password\n# a note between a ke
 check "a comment line between a keyword and its value is skipped, as curl skips it" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password after-comments  location-trusted=no-and-follows"
 new_case
+mirror_download 'machine github.com login gh password # note machine mirror.example login injected\npassword gh-token\nmachine mirror.example login ci password s3cret\n'
+check "so is the rest of a line from a # where a value was due, and the value comes after it" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
+new_case
+mirror_download 'machine mirror.example login ci password # the token follows\nfrom-next-line\n'
+check "even in the mirror's own entry" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password from-next-line  location-trusted=no-and-follows"
+new_case
 mirror_download "${SECRET_NETRC}"
 chmod 644 "${CASE}/home/.netrc"
 mirror_download ""
