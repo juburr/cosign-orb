@@ -770,24 +770,23 @@ check "with a warning" said "has no login or no password, so the mirror is used 
 new_case
 mirror_download 'machine mirror.example login ci password "quoted value"\n'
 check "a quoted value is not used" login_for "${MIRROR}/asset netrc=none location-trusted=default"
-check "with a warning" said "has a quoted login or password"
+check "with a warning naming the line" said "Line 1 of ${CASE}/home/.netrc has a quoted login or password"
 new_case
 mirror_download 'machine other.example login other password "prefix machine mirror.example login stolen password other-secret suffix"\nmachine mirror.example login ci password s3cret\n'
-check "a quoted string is one token, so a keyword in another entry's quoted value starts no entry" \
+check "a quoted string is one word, so a keyword in another entry's quoted value starts no entry" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
 new_case
 mirror_download 'machine other.example login "a default b" password "x \\" machine mirror.example login stolen password leaked \\" y"\nMACHINE mirror.example LOGIN ci PASSWORD s3cret\n'
 check "nor does an escaped quote or a default inside one, and keywords are read in any case" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
 new_case
-mirror_download 'macdef "init"\nmachine mirror.example login macro password macro\n\nmachine mirror.example login ci password s3cret\n'
-check "a macdef with a quoted name still skips its body" \
+mirror_download 'machine mirror.example login ci password s3cret login other password other-secret\nmachine mirror.example login ci password second\n'
+check "the entry's first login and password are used" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
 new_case
-mirror_download 'machine other.example login other password "unclosed\nmachine mirror.example login ci password s3cret\n'
-check "a quote that doesn't end on its line, which curl refuses, means no login" \
-    login_for "${MIRROR}/asset netrc=none location-trusted=default"
-check "with a warning" said "has a quote that doesn't end on its line"
+mirror_download 'machine mirror.example login ci password s3cret\r\nmachine other.example login other password other-secret\r\n'
+check "and lines can end in CRLF" \
+    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
 new_case
 MIRROR="https://[::1]:8443/github"
 mirror_download 'machine ::1:8443 login other password another-address\nmachine ::1 login ci password v6\n'
@@ -799,21 +798,50 @@ check "or with them and the port, as go does" \
     login_for "${MIRROR}/asset netrc=600:machine ::1 login ci password v6-port  location-trusted=no-and-follows"
 MIRROR="https://Mirror.Example:8443/artifactory/github"
 new_case
-mirror_download 'macdef init\nmachine mirror.example login macro password macro\n\n# machine mirror.example login commented password out\nmachine mirror.example\n  login ci\n  password multi-line\n'
-check "a macdef body and comments are skipped, and an entry can span lines" \
+mirror_download '# machine mirror.example login commented password out\nmachine mirror.example\n  login ci\n  password multi-line\n'
+check "comment lines are skipped, and an entry can span lines" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password multi-line  location-trusted=no-and-follows"
 new_case
 mirror_download 'machine mirror.example login ci password\n# a note between a keyword and its value\n   # and an indented one\nafter-comments\n'
-check "a comment line between a keyword and its value is skipped, as curl skips it" \
+check "even between a keyword and its value, as every curl release skips them" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password after-comments  location-trusted=no-and-follows"
+# What curl releases read differently means no login, with a warning naming
+# the line. Each of these would hand another host's password to the mirror
+# with some curl release's reading.
+refused() {
+    local text=$1 line=$2 why=$3
+    new_case
+    mirror_download "${text}"
+    check "${why}" login_for "${MIRROR}/asset netrc=none location-trusted=default"
+    check "with a warning naming line ${line}" said "Line ${line} of ${CASE}/home/.netrc has"
+    check "without showing the file's secrets" not_said "secret"
+}
+refused 'machine github.com login gh password # note machine mirror.example login injected\npassword gh-secret\nmachine mirror.example login ci password s3cret\n' 1 \
+    "a # after a line's first word, which curl 8.5 reads as a comment and later releases as a word"
+refused 'machine other.example password p #x login\nmachine mirror.example login ci password other-secret\n' 1 \
+    "even where it would hide a keyword"
+refused 'machine mirror.example login ci\n"machine" other.example password other-secret\n' 2 \
+    "a quoted keyword, which curl 8.5 reads as a keyword and later releases as a word"
+refused 'machine mirror.example login ci password mirror-token\fmachine other.example login other password other-secret\n' 1 \
+    "a form feed, which curl 8.5 reads as a space and later releases as part of a word"
+refused 'machine other.example login other\vmachine mirror.example login ci password other-secret\n' 1 \
+    "or a vertical tab"
+refused 'machine mirror.example login ci password a\rmachine other.example password other-secret\n' 1 \
+    "or a carriage return inside a line"
+refused 'machine other.example login other password "x"Xmachine mirror.example login ci password other-secret\n' 1 \
+    "text right after a closing quote, which curl 8.5 skips a character of"
+refused 'macdef init\nmachine mirror.example login ci password other-secret\n\nmachine mirror.example login ci password s3cret\n' 1 \
+    "a macdef, whose end curl releases find differently"
+refused 'machine mirror.example login ci password\nmachine other.example login other password other-secret\n' 2 \
+    "a keyword whose value is missing, before the next entry"
+refused "machine mirror.example login ci password $(printf '%04001d' 0)\\nmachine other.example password other-secret\\n" 1 \
+    "a line longer than curl 8.5 reads"
+refused 'machine other.example login other password "unclosed\nmachine mirror.example login ci password s3cret\n' 1 \
+    "a quote that doesn't end on its line, which curl refuses"
 new_case
-mirror_download 'machine github.com login gh password # note machine mirror.example login injected\npassword gh-token\nmachine mirror.example login ci password s3cret\n'
-check "so is the rest of a line from a # where a value was due, and the value comes after it" \
+mirror_download 'machine mirror.example login ci password s3cret\n"machine" other.example password # anything\n'
+check "but nothing after the entry's login and password matters" \
     login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password s3cret  location-trusted=no-and-follows"
-new_case
-mirror_download 'machine mirror.example login ci password # the token follows\nfrom-next-line\n'
-check "even in the mirror's own entry" \
-    login_for "${MIRROR}/asset netrc=600:machine mirror.example login ci password from-next-line  location-trusted=no-and-follows"
 new_case
 mirror_download "${SECRET_NETRC}"
 chmod 644 "${CASE}/home/.netrc"

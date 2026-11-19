@@ -244,7 +244,7 @@ orb_init() {
 # could send the mirror's password to on a redirect, CVE-2024-11053 and
 # CVE-2025-0167), and not a token for another host, such as github.com.
 orb_use_mirror() {
-    local base=${1%/} authority hostport rc=0 mode
+    local base=${1%/} authority hostport rc=0 mode why line_number="" note=""
     ORB_MIRROR_URL=""
     ORB_MIRROR_NETRC=""
     ORB_MIRROR_HOST=""
@@ -285,84 +285,81 @@ orb_use_mirror() {
     fi
     # The awk program writes the entry straight to the private file, so the
     # login never passes through a shell variable or a command line. It reads
-    # the file as curl does, a token at a time: a token that starts with #
-    # starts a comment to the end of its line, wherever it falls, a macdef
-    # runs to the next blank line, keywords are read in any case, and a
-    # quoted string is one token, so nothing inside one is ever a keyword.
-    # The first machine entry named after the host, or the host and port as
-    # go names it, wins, as it does for curl and go; a default entry is never
-    # used.
+    # the file a word at a time, as every curl release does: comment lines
+    # are skipped, an entry can span lines, keywords are read in any case,
+    # and a quoted string is one word. The first machine entry named after
+    # the host, or the host and port as go names it, wins, as it does for
+    # curl and go, and its first login and password are used; a default entry
+    # is never used. curl releases read some things differently (a # after a
+    # line's first word, a macdef, a quoted keyword, a keyword with no value,
+    # text right after a closing quote, a carriage return, form feed or
+    # vertical tab inside a line, a line longer than curl 8.5 reads), so any
+    # of them up to the entry means no login, and the line goes in a note.
     ORB_MIRROR_NETRC="${ORB_WORK_DIR}/mirror.netrc"
-    (umask 077 && awk -v host="${ORB_MIRROR_HOST}" -v hostport="${hostport}" '
+    why="${ORB_WORK_DIR}/mirror.netrc.why"
+    (umask 077 && LC_ALL=C awk -v host="${ORB_MIRROR_HOST}" -v hostport="${hostport}" -v why="${why}" '
+        function refuse(text) { print NR > why; print text > why; refused = 1; exit }
         function finish() { exit }
-        macro { if ($0 ~ /^[ \t\r]*$/) { macro = 0 } next }
         # A comment line, indented or not, is skipped even between a
-        # keyword and its value, as curl skips it.
+        # keyword and its value, as every curl release skips it.
         /^[ \t]*#/ { next }
         {
             sub(/\r$/, "")
             line = $0
             n = length(line)
+            if (n > 4000) { refuse("over 4000 bytes, more than curl 8.5 reads") }
+            if (line ~ /[\r\v\f]/) { refuse("a carriage return, form feed or vertical tab inside the line, which curl releases split differently") }
             p = 1
             while (p <= n) {
                 c = substr(line, p, 1)
                 if (c == " " || c == "\t") { p++; continue }
                 if (c == "\"") {
                     # A quoted string runs to the next quote a backslash
-                    # does not escape, on the same line, as curl reads it.
-                    # Its contents are not needed: a quoted machine name
-                    # matches nothing, and a quoted login or password is
-                    # not used.
+                    # does not escape, on the same line. Its contents are
+                    # not needed: a quoted machine name matches nothing.
                     for (p++; p <= n; p++) {
                         c = substr(line, p, 1)
                         if (c == "\\") { p++ } else if (c == "\"") { break }
                     }
-                    if (p > n) { unclosed = 1; exit }
+                    if (p > n) { refuse("an unclosed quote, which curl refuses") }
                     p++
-                    if (want == "machine") {
-                        if (matched) { finish() }
-                        matched = 0
-                    } else if ((want == "login" || want == "password") && matched) {
-                        quoted = 1
-                    } else if (want == "macdef") {
-                        macro = 1
-                        want = ""
-                        next
-                    }
+                    if (p <= n && (c = substr(line, p, 1)) != " " && c != "\t") { refuse("text right after a closing quote, which curl releases split differently") }
+                    if (want == "") { refuse("a quoted word where a keyword can stand, which some curl releases read as a keyword") }
+                    if (matched && (want == "login" || want == "password")) { refuse("a quoted login or password, which this orb does not read") }
                     want = ""
                     continue
                 }
                 start = p
                 while (p <= n && (c = substr(line, p, 1)) != " " && c != "\t") { p++ }
                 token = substr(line, start, p - start)
-                # A # starts a comment that runs to the end of the line, even
-                # between a keyword and its value, which then comes next.
-                if (substr(token, 1, 1) == "#") { break }
                 key = tolower(token)
-                if (want == "machine") {
-                    if (matched) { finish() }
-                    matched = (key == host || (hostport != "" && key == hostport))
-                } else if (want == "login" && matched) {
-                    login = token
-                } else if (want == "password" && matched) {
-                    password = token
-                } else if (want == "macdef") {
-                    macro = 1
+                if (substr(token, 1, 1) == "#") { refuse("a word after the first that starts with #, which some curl releases read as a comment") }
+                if (want != "") {
+                    if (key == "machine" || key == "default" || key == "macdef") { refuse("a " want " with no value before the next keyword") }
+                    if (want == "machine") {
+                        matched = (key == host || (hostport != "" && key == hostport))
+                    } else if (matched && want == "login") {
+                        login = token
+                    } else if (matched && want == "password") {
+                        password = token
+                    }
                     want = ""
-                    next
-                } else if (want == "" && key == "default") {
-                    finish()
-                } else if (want == "" && (key == "machine" || key == "login" || key == "password" || key == "account" || key == "macdef")) {
-                    want = key
+                    if (matched && login != "" && password != "") { finish() }
                     continue
                 }
-                want = ""
+                if (key == "machine" || key == "default") {
+                    if (matched || key == "default") { finish() }
+                    want = key
+                } else if (key == "login" || key == "password" || key == "account") {
+                    want = key
+                } else if (key == "macdef") {
+                    refuse("a macdef, whose end curl releases find differently")
+                }
             }
         }
         END {
-            if (unclosed) { exit 4 }
+            if (refused) { exit 3 }
             if (!matched) { exit 1 }
-            if (quoted) { exit 3 }
             if (login == "" || password == "") { exit 2 }
             printf "machine %s login %s password %s\n", host, login, password
         }' "${ORB_MIRROR_NETRC_SOURCE}" > "${ORB_MIRROR_NETRC}") || rc=$?
@@ -377,8 +374,10 @@ orb_use_mirror() {
             ;;
         1) orb_info "  mirror login:     none (${ORB_MIRROR_NETRC_SOURCE} has no entry for ${ORB_MIRROR_HOST})" ;;
         2) orb_warn "The entry for ${ORB_MIRROR_HOST} in ${ORB_MIRROR_NETRC_SOURCE} has no login or no password, so the mirror is used without a login." ;;
-        3) orb_warn "The entry for ${ORB_MIRROR_HOST} in ${ORB_MIRROR_NETRC_SOURCE} has a quoted login or password, which this orb can't read, so the mirror is used without a login." ;;
-        4) orb_warn "${ORB_MIRROR_NETRC_SOURCE} has a quote that doesn't end on its line, which curl refuses, so the mirror is used without a login." ;;
+        3)
+            { IFS= read -r line_number && IFS= read -r note; } < "${why}" || true
+            orb_warn "Line ${line_number:-?} of ${ORB_MIRROR_NETRC_SOURCE} has ${note:-something this orb does not read}, so the mirror is used without a login."
+            ;;
         *) orb_warn "Could not read the entry for ${ORB_MIRROR_HOST} from ${ORB_MIRROR_NETRC_SOURCE}, so the mirror is used without a login." ;;
     esac
     rm -f "${ORB_MIRROR_NETRC}"
