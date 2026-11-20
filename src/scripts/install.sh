@@ -232,11 +232,163 @@ orb_init() {
     fi
 }
 
+# orb_use_mirror BASE_URL: the tool definition calls this once it has
+# checked that BASE_URL, the mirror it downloads from in place of the
+# default host, has no credentials, query or fragment. A mirror that needs a
+# login, such as an Artifactory remote repository, gets it from the .netrc
+# file go, git, pip and uv read too: the file NETRC names, or ~/.netrc. Only
+# the first complete entry for the mirror's host is used, and it is copied,
+# alone, into a private file that orb_download hands curl for URLs under
+# BASE_URL and nothing else. So curl never reads the rest of the file: not a
+# "default" entry or one without a password (which curl 7.76.0 to 8.11.1
+# could send the mirror's password to on a redirect, CVE-2024-11053 and
+# CVE-2025-0167), and not a token for another host, such as github.com.
+orb_use_mirror() {
+    local base=${1%/} authority hostport rc=0 mode why line_number="" note=""
+    ORB_MIRROR_URL=""
+    ORB_MIRROR_NETRC=""
+    ORB_MIRROR_HOST=""
+    if [[ -z "${base}" ]]; then
+        return 0
+    fi
+    if [[ ! "${base}" =~ ^https://([^/@?#[:space:]]+)(/[^?#[:space:]]*)?$ ]]; then
+        orb_die "The download mirror must be an https:// URL without credentials, a query or a fragment."
+    fi
+    authority=${BASH_REMATCH[1],,}
+    ORB_MIRROR_URL=${base}
+    ORB_MIRROR_HOST=${authority}
+    ORB_MIRROR_PORT=""
+    if [[ "${authority}" =~ ^(.+):([0-9]+)$ ]]; then
+        ORB_MIRROR_HOST=${BASH_REMATCH[1]}
+        ORB_MIRROR_PORT=${BASH_REMATCH[2]}
+    fi
+    # go names a host with a port as the URL writes them; curl names an IPv6
+    # address without the brackets a URL puts around it.
+    hostport=""
+    if [[ -n "${ORB_MIRROR_PORT}" ]]; then
+        hostport="${ORB_MIRROR_HOST}:${ORB_MIRROR_PORT}"
+    fi
+    if [[ "${ORB_MIRROR_HOST}" =~ ^\[(.+)\]$ ]]; then
+        ORB_MIRROR_HOST=${BASH_REMATCH[1]}
+    fi
+    ORB_MIRROR_NETRC_SOURCE=${NETRC:-}
+    if [[ -z "${ORB_MIRROR_NETRC_SOURCE}" && -n "${HOME:-}" ]]; then
+        ORB_MIRROR_NETRC_SOURCE="${HOME}/.netrc"
+    fi
+    if [[ -z "${ORB_MIRROR_NETRC_SOURCE}" || ! -e "${ORB_MIRROR_NETRC_SOURCE}" ]]; then
+        orb_info "  mirror login:     none (no ${ORB_MIRROR_NETRC_SOURCE:-.netrc} file)"
+        return 0
+    fi
+    if [[ ! -f "${ORB_MIRROR_NETRC_SOURCE}" || ! -r "${ORB_MIRROR_NETRC_SOURCE}" ]]; then
+        orb_warn "Can't read ${ORB_MIRROR_NETRC_SOURCE}, so the mirror is used without a login."
+        return 0
+    fi
+    # The awk program writes the entry straight to the private file, so the
+    # login never passes through a shell variable or a command line. It reads
+    # the file a word at a time, as every curl release does: comment lines
+    # are skipped, an entry can span lines, keywords are read in any case,
+    # and a quoted string is one word. The first machine entry named after
+    # the host, or the host and port as go names it, wins, as it does for
+    # curl and go, and its first login and password are used; a default entry
+    # is never used. curl releases read some things differently (a # after a
+    # line's first word, a macdef, a quoted keyword, a keyword with no value,
+    # text right after a closing quote, a carriage return, form feed or
+    # vertical tab inside a line, a line longer than curl 8.5 reads), so any
+    # of them up to the entry means no login, and the line goes in a note.
+    ORB_MIRROR_NETRC="${ORB_WORK_DIR}/mirror.netrc"
+    why="${ORB_WORK_DIR}/mirror.netrc.why"
+    (umask 077 && LC_ALL=C awk -v host="${ORB_MIRROR_HOST}" -v hostport="${hostport}" -v why="${why}" '
+        function refuse(text) { print NR > why; print text > why; refused = 1; exit }
+        function finish() { exit }
+        # A comment line, indented or not, is skipped even between a
+        # keyword and its value, as every curl release skips it.
+        /^[ \t]*#/ { next }
+        {
+            sub(/\r$/, "")
+            line = $0
+            n = length(line)
+            if (n > 4000) { refuse("over 4000 bytes, more than curl 8.5 reads") }
+            if (line ~ /[\r\v\f]/) { refuse("a carriage return, form feed or vertical tab inside the line, which curl releases split differently") }
+            p = 1
+            while (p <= n) {
+                c = substr(line, p, 1)
+                if (c == " " || c == "\t") { p++; continue }
+                if (c == "\"") {
+                    # A quoted string runs to the next quote a backslash
+                    # does not escape, on the same line. Its contents are
+                    # not needed: a quoted machine name matches nothing.
+                    for (p++; p <= n; p++) {
+                        c = substr(line, p, 1)
+                        if (c == "\\") { p++ } else if (c == "\"") { break }
+                    }
+                    if (p > n) { refuse("an unclosed quote, which curl refuses") }
+                    p++
+                    if (p <= n && (c = substr(line, p, 1)) != " " && c != "\t") { refuse("text right after a closing quote, which curl releases split differently") }
+                    if (want == "") { refuse("a quoted word where a keyword can stand, which some curl releases read as a keyword") }
+                    if (matched && (want == "login" || want == "password")) { refuse("a quoted login or password, which this orb does not read") }
+                    want = ""
+                    continue
+                }
+                start = p
+                while (p <= n && (c = substr(line, p, 1)) != " " && c != "\t") { p++ }
+                token = substr(line, start, p - start)
+                key = tolower(token)
+                if (substr(token, 1, 1) == "#") { refuse("a word after the first that starts with #, which some curl releases read as a comment") }
+                if (want != "") {
+                    if (key == "machine" || key == "default" || key == "macdef") { refuse("a " want " with no value before the next keyword") }
+                    if (want == "machine") {
+                        matched = (key == host || (hostport != "" && key == hostport))
+                    } else if (matched && want == "login") {
+                        login = token
+                    } else if (matched && want == "password") {
+                        password = token
+                    }
+                    want = ""
+                    if (matched && login != "" && password != "") { finish() }
+                    continue
+                }
+                if (key == "machine" || key == "default") {
+                    if (matched || key == "default") { finish() }
+                    want = key
+                } else if (key == "login" || key == "password" || key == "account") {
+                    want = key
+                } else if (key == "macdef") {
+                    refuse("a macdef, whose end curl releases find differently")
+                }
+            }
+        }
+        END {
+            if (refused) { exit 3 }
+            if (!matched) { exit 1 }
+            if (login == "" || password == "") { exit 2 }
+            printf "machine %s login %s password %s\n", host, login, password
+        }' "${ORB_MIRROR_NETRC_SOURCE}" > "${ORB_MIRROR_NETRC}") || rc=$?
+    case "${rc}" in
+        0)
+            orb_info "  mirror login:     the entry for ${ORB_MIRROR_HOST} in ${ORB_MIRROR_NETRC_SOURCE}"
+            mode=$(stat -c %a "${ORB_MIRROR_NETRC_SOURCE}" 2> /dev/null || true)
+            if [[ "${mode}" =~ ^[0-7]+$ ]] && ((8#${mode} & 8#077)); then
+                orb_warn "${ORB_MIRROR_NETRC_SOURCE} can be read by other users (mode ${mode}). Restrict it with chmod 600."
+            fi
+            return 0
+            ;;
+        1) orb_info "  mirror login:     none (${ORB_MIRROR_NETRC_SOURCE} has no entry for ${ORB_MIRROR_HOST})" ;;
+        2) orb_warn "The entry for ${ORB_MIRROR_HOST} in ${ORB_MIRROR_NETRC_SOURCE} has no login or no password, so the mirror is used without a login." ;;
+        3)
+            { IFS= read -r line_number && IFS= read -r note; } < "${why}" || true
+            orb_warn "Line ${line_number:-?} of ${ORB_MIRROR_NETRC_SOURCE} has ${note:-something this orb does not read}, so the mirror is used without a login."
+            ;;
+        *) orb_warn "Could not read the entry for ${ORB_MIRROR_HOST} from ${ORB_MIRROR_NETRC_SOURCE}, so the mirror is used without a login." ;;
+    esac
+    rm -f "${ORB_MIRROR_NETRC}"
+    ORB_MIRROR_NETRC=""
+}
+
 # orb_download DEST URL...: downloads the first URL that works to DEST.
 # Transient failures are retried with backoff; a 404 moves on to the next URL.
 orb_download() {
-    local dest=$1 url help option attempt rc
-    local -a fetch
+    local dest=$1 url help option attempt rc output
+    local -a fetch login
     shift
     if command -v curl > /dev/null 2>&1; then
         # A stalled transfer counts as a failure and is retried.
@@ -249,7 +401,7 @@ orb_download() {
         if [[ "${help}" == *--retry-connrefused* ]]; then
             fetch+=(--retry-connrefused)
         fi
-        fetch+=(-o)
+        output=-o
     elif command -v wget > /dev/null 2>&1; then
         fetch=(wget -q)
         # Only the retry options this wget supports (BusyBox wget has none).
@@ -259,11 +411,25 @@ orb_download() {
                 fetch+=("${option}")
             fi
         done
-        fetch+=(-O)
+        output=-O
     else
         orb_die "Neither curl nor wget is available. Install one of them in an earlier step."
     fi
     for url in "$@"; do
+        login=()
+        if [[ -n "${ORB_MIRROR_NETRC:-}" && "${url}" == "${ORB_MIRROR_URL}/"* ]]; then
+            # wget reads only ~/.netrc, every entry in it, so it can't be
+            # limited to the mirror's.
+            if [[ "${fetch[0]}" != "curl" ]]; then
+                orb_die "The download mirror needs the login in ${ORB_MIRROR_NETRC_SOURCE}, which this orb sends only" \
+                    "with curl, the one client it can limit to the mirror. Install curl in an earlier step."
+            fi
+            # A redirect to another host, such as the cloud storage an
+            # Artifactory redirects downloads to, gets no login, even when a
+            # .curlrc says location-trusted. --no-location-trusted also stops
+            # curl following redirects, so --location turns that back on.
+            login=(--netrc-file "${ORB_MIRROR_NETRC}" --no-location-trusted --location)
+        fi
         # curl retries timeouts and HTTP 5xx itself, but not a connection
         # dropped partway through, so that gets two more attempts here. An
         # HTTP error such as a 404 (curl exit code 22) moves on to the next
@@ -271,7 +437,7 @@ orb_download() {
         for attempt in 1 2 3; do
             orb_info "Downloading ${url}"
             rc=0
-            "${fetch[@]}" "${dest}.partial" "${url}" || rc=$?
+            "${fetch[@]}" ${login[@]+"${login[@]}"} "${output}" "${dest}.partial" "${url}" || rc=$?
             if [[ "${rc}" -eq 0 ]]; then
                 mv -f "${dest}.partial" "${dest}"
                 return 0
@@ -283,6 +449,10 @@ orb_download() {
             sleep $((attempt * 10))
         done
         orb_warn "Could not download ${url}."
+        if [[ -n "${ORB_MIRROR_URL:-}" && -z "${ORB_MIRROR_NETRC:-}" && "${url}" == "${ORB_MIRROR_URL}/"* ]]; then
+            orb_warn "If ${ORB_MIRROR_HOST} needs a login, put an entry for it in ${ORB_MIRROR_NETRC_SOURCE:-the .netrc file}" \
+                "(machine ${ORB_MIRROR_HOST} login USER password TOKEN) in an earlier step."
+        fi
     done
     rm -f "${dest}.partial"
     return 1

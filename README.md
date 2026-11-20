@@ -124,7 +124,7 @@ Copy this into `.circleci/config.yml`:
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.1.0
+  cosign: juburr/cosign-orb@1.1.1
 
 jobs:
   build-and-sign-keyless:
@@ -184,12 +184,12 @@ jobs:
           printf '%s' "${REGISTRY_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker build -t "${IMAGE}" .
           docker push "${IMAGE}"
-      - uses: juburr/cosign-orb/actions/install@v1.1.0
-      - uses: juburr/cosign-orb/actions/sign@v1.1.0
+      - uses: juburr/cosign-orb/actions/install@v1.1.1
+      - uses: juburr/cosign-orb/actions/sign@v1.1.1
         with:
           image: ${{ env.IMAGE }}
           keyless: true
-      - uses: juburr/cosign-orb/actions/verify@v1.1.0
+      - uses: juburr/cosign-orb/actions/verify@v1.1.1
         with:
           image: ${{ env.IMAGE }}
           keyless: true
@@ -222,7 +222,7 @@ Sign images using a private key stored in a CircleCI context. See [Key Managemen
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.1.0
+  cosign: juburr/cosign-orb@1.1.1
 
 jobs:
   build-and-sign:
@@ -504,7 +504,7 @@ Install Cosign and use it with custom commands:
 version: 2.1
 
 orbs:
-  cosign: juburr/cosign-orb@1.1.0
+  cosign: juburr/cosign-orb@1.1.1
 
 jobs:
   example:
@@ -556,13 +556,13 @@ cosign generate-key-pair
 Add the same three values as repository or environment secrets, and set them in the `env` of the steps that use them:
 
 ```yaml
-- uses: juburr/cosign-orb/actions/sign@v1.1.0
+- uses: juburr/cosign-orb/actions/sign@v1.1.1
   env:
     COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
     COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
   with:
     image: ghcr.io/my-org/myimage:${{ github.sha }}
-- uses: juburr/cosign-orb/actions/verify@v1.1.0
+- uses: juburr/cosign-orb/actions/verify@v1.1.1
   env:
     COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
   with:
@@ -731,19 +731,19 @@ Each of the orb's commands has a GitHub Action of the same name. The actions run
 
 | Action | Orb command |
 | --- | --- |
-| `juburr/cosign-orb/actions/install@v1.1.0` | [`cosign/install`](#cosigninstall) |
-| `juburr/cosign-orb/actions/check_oidc@v1.1.0` | [`cosign/check_oidc`](#cosigncheck_oidc) |
-| `juburr/cosign-orb/actions/sign@v1.1.0` | [`cosign/sign`](#cosignsign) |
-| `juburr/cosign-orb/actions/verify@v1.1.0` | [`cosign/verify`](#cosignverify) |
-| `juburr/cosign-orb/actions/attest@v1.1.0` | [`cosign/attest`](#cosignattest) |
-| `juburr/cosign-orb/actions/verify_attestation@v1.1.0` | [`cosign/verify_attestation`](#cosignverify_attestation) |
-| `juburr/cosign-orb/actions/sign_blob@v1.1.0` | [`cosign/sign_blob`](#cosignsign_blob) |
-| `juburr/cosign-orb/actions/verify_blob@v1.1.0` | [`cosign/verify_blob`](#cosignverify_blob) |
-| `juburr/cosign-orb/actions/generate_key_pair@v1.1.0` | [`cosign/generate_key_pair`](#cosigngenerate_key_pair) |
+| `juburr/cosign-orb/actions/install@v1.1.1` | [`cosign/install`](#cosigninstall) |
+| `juburr/cosign-orb/actions/check_oidc@v1.1.1` | [`cosign/check_oidc`](#cosigncheck_oidc) |
+| `juburr/cosign-orb/actions/sign@v1.1.1` | [`cosign/sign`](#cosignsign) |
+| `juburr/cosign-orb/actions/verify@v1.1.1` | [`cosign/verify`](#cosignverify) |
+| `juburr/cosign-orb/actions/attest@v1.1.1` | [`cosign/attest`](#cosignattest) |
+| `juburr/cosign-orb/actions/verify_attestation@v1.1.1` | [`cosign/verify_attestation`](#cosignverify_attestation) |
+| `juburr/cosign-orb/actions/sign_blob@v1.1.1` | [`cosign/sign_blob`](#cosignsign_blob) |
+| `juburr/cosign-orb/actions/verify_blob@v1.1.1` | [`cosign/verify_blob`](#cosignverify_blob) |
+| `juburr/cosign-orb/actions/generate_key_pair@v1.1.1` | [`cosign/generate_key_pair`](#cosigngenerate_key_pair) |
 
 How they differ from the orb's commands:
 
-- **Versions.** An action is referenced by the repository's release tag, such as `v1.1.0`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/cosign-orb/actions/sign@<sha> # v1.1.0`.
+- **Versions.** An action is referenced by the repository's release tag, such as `v1.1.1`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/cosign-orb/actions/sign@<sha> # v1.1.0`.
 - **Inputs are strings.** Write booleans quoted or not (`keyless: true` reaches the script as `true`); the scripts check every boolean themselves.
 - **Keys and passwords.** `private_key`, `password` and `public_key` name environment variables, as in the orb. Set them in the `env` of the step that uses the action, from secrets, as in [Storing Keys in GitHub Actions](#storing-keys-in-github-actions), or let `generate_key_pair` set them for later steps.
 - **Keyless signing.** The job needs `permissions: id-token: write`. The certificate's issuer is `https://token.actions.githubusercontent.com` (`<server>/_services/token` on GitHub Enterprise Server), and its identity is the workflow file at the ref it ran from, such as `https://github.com/my-org/myrepo/.github/workflows/release.yml@refs/heads/main`. A job in a reusable workflow signs as that workflow's file, which can be in another repository. Pull requests from forks get no token, so sign on pushes or tags.
